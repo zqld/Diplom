@@ -1,0 +1,7 @@
+openvino
+opencv-python
+numpy
+matplotlib
+pandas
+deepface
+plyer
