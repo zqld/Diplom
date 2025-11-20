@@ -1,7 +1,8 @@
-openvino
-opencv-python
-numpy
-matplotlib
-pandas
-deepface
-plyer
+opencv-python #для работы с изображениями
+mediapipe #для лица
+numpy #для вычислений
+pandas #для работы с данными
+PyQt6 #для интерфейса
+sqlalchemy #для базы данных
+matplotlib #для графиков
+tensorflow #для загрузки модели

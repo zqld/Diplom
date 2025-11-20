@@ -1,0 +1,4 @@
+https://www.kaggle.com/datasets/deadskull7/fer2013
+https://github.com/GSNCodes/Emotion-Detection-FER2013
+https://www.kaggle.com/c/challenges-in-representation-learning-facial-expression-recognition-challenge/data
+https://github.com/gitshanks/fer2013
