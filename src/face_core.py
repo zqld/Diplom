@@ -4,8 +4,8 @@ import numpy as np
 
 class FaceMeshDetector:
     def __init__(self, static_image_mode=False, max_num_faces=1, 
-                 refine_landmarks=True, min_detection_confidence=0.5, 
-                 min_tracking_confidence=0.5):
+                 refine_landmarks=True, min_detection_confidence=0.8, #порог уверенности детекции
+                 min_tracking_confidence=0.8): #порог уверенности трекинга
         """
         Инициализация модели MediaPipe Face Mesh.
         

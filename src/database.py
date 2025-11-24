@@ -18,11 +18,14 @@ class FaceLog(Base):
     timestamp = Column(DateTime, default=datetime.now) # Время записи
     ear = Column(Float)         # Уровень открытости глаз
     mar = Column(Float)         # Уровень открытости рта
+    pitch = Column(Float)       # Угол наклона головы
     emotion = Column(String)    # Эмоция
     fatigue_status = Column(String) # Текстовый статус (Норма/Сон/Зевок)
+    posture_status = Column(String) # Статус осанки (Норма/Плохая)
 
     def __repr__(self):
-        return f"<Log(time={self.timestamp}, emotion={self.emotion}, status={self.fatigue_status})>"
+        return f"<Log {self.timestamp} | Emo: {self.emotion} | P: {self.posture_status}>"
+        #return f"<Log(time={self.timestamp}, emotion={self.emotion}, status={self.fatigue_status})>"
 
 class DatabaseManager:
     def __init__(self, db_name="face_analysis.db"):
@@ -43,15 +46,17 @@ class DatabaseManager:
         # Фабрика сессий
         self.Session = sessionmaker(bind=self.engine)
 
-    def save_log(self, ear, mar, emotion, status):
+    def save_log(self, ear, mar, pitch, emotion, fatigue_status, posture_status):
         """Сохраняет одну запись в БД."""
         session = self.Session()
         try:
             log_entry = FaceLog(
                 ear=ear, 
                 mar=mar, 
+                pitch=pitch,
                 emotion=emotion,
-                fatigue_status=status
+                fatigue_status=fatigue_status,
+                posture_status=posture_status
             )
             session.add(log_entry)
             session.commit()
