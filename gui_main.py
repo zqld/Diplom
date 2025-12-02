@@ -8,6 +8,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QFrame, QProgressBar, QListWidget)
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal, QEvent
 from PyQt6.QtGui import QImage, QPixmap, QFont, QColor
+#для уведомлений
+from src.notifications import NotificationManager, ToastNotification
+from gui_settings import SettingsWindow
 
 # Импорты
 from src.emotion_detector import EmotionDetector 
@@ -263,10 +266,25 @@ class MainWindow(QMainWindow):
         self.btn_stats.clicked.connect(self.open_stats)
         sidebar_layout.addWidget(self.btn_stats)
 
+        # Кнопка Настроек (НОВАЯ)
+        self.btn_settings = QPushButton("⚙ Настройки")
+        self.btn_settings.clicked.connect(self.open_settings)
+        sidebar_layout.addWidget(self.btn_settings)
+
+        # Кнопка выхода
         self.btn_stop = QPushButton("Завершить работу")
         self.btn_stop.setObjectName("StopBtn")
         self.btn_stop.clicked.connect(self.close_app)
         sidebar_layout.addWidget(self.btn_stop)
+
+        # --- СИСТЕМА УВЕДОМЛЕНИЙ ---
+        self.notify_manager = NotificationManager() # Подключаемся к БД
+
+        # Таймер проверки (раз в 10 секунд, чтобы не грузить процессор)
+        self.notify_timer = QTimer(self)
+        self.notify_timer.setInterval(10000) # 10000 мс = 10 сек
+        self.notify_timer.timeout.connect(self.check_notifications)
+        self.notify_timer.start()
 
         main_layout.addWidget(sidebar, stretch=1)
 
@@ -355,6 +373,35 @@ class MainWindow(QMainWindow):
     def close_app(self):
         self.thread.stop()
         self.close()
+
+    # функция для открытия настроек и уведомлений
+
+    def open_settings(self):
+        """Открывает окно настроек"""
+        # Передаем текущие настройки в окно
+        dialog = SettingsWindow(self.notify_manager.settings)
+        if dialog.exec():
+            # Если нажали "Сохранить", забираем новые данные
+            new_config = dialog.get_settings()
+            if new_config:
+                self.notify_manager.update_settings(new_config)
+                # Можно показать тост-подтверждение
+                self.show_notification("Настройки", "Параметры мониторинга обновлены.")
+
+    def check_notifications(self):
+        """Вызывается таймером раз в 10 сек"""
+        # Спрашиваем у менеджера, есть ли проблемы
+        result = self.notify_manager.check_conditions()
+        
+        if result:
+            title, msg = result
+            self.show_notification(title, msg)
+
+    def show_notification(self, title, msg):
+        """Показывает всплывающее окно справа внизу"""
+        # Важно сохранять ссылку на тост, иначе сборщик мусора удалит его мгновенно
+        self.toast = ToastNotification(title, msg)
+        self.toast.show_toast()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
