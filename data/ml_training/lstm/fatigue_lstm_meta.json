@@ -1,0 +1,12 @@
+{
+  "name": "fatigue_lstm",
+  "created": "2026-03-24T10:44:35.459557",
+  "num_samples": 1500,
+  "sequence_length": 30,
+  "num_features": 16,
+  "class_distribution": {
+    "awake": 500,
+    "drowsy": 500,
+    "sleeping": 500
+  }
+}

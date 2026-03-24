@@ -1,0 +1,10 @@
+{
+  "face_calibrated": true,
+  "face_ear": 0.3559498616632088,
+  "face_mar": 0.004600969514603783,
+  "face_pitch": 17.2081581110265,
+  "hand_calibrated": true,
+  "hand_size": 0.16933845843332615,
+  "auto_calibrate": true,
+  "sensitivity": 1.87
+}

@@ -1,0 +1,9 @@
+{
+  "name": "fatigue_lstm_v2",
+  "num_samples": 1500,
+  "classes": {
+    "awake": 500,
+    "drowsy": 500,
+    "sleeping": 500
+  }
+}

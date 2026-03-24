@@ -1,0 +1,207 @@
+11:08:54 | INFO     | NeuroFocus | VideoThread инициализирован
+11:08:54 | INFO     | NeuroFocus | Приложение запущено успешно
+11:09:01 | WARNING  | NeuroFocus | Лицо пользователя потеряно на 5.0 секунд
+11:59:30 | INFO     | NeuroFocus | Завершение работы приложения...
+11:59:30 | INFO     | NeuroFocus | Ежедневный прогресс обновлен
+11:59:30 | INFO     | NeuroFocus | Приложение завершено
+11:59:40 | INFO     | NeuroFocus | VideoThread инициализирован
+11:59:40 | INFO     | NeuroFocus | Приложение запущено успешно
+11:59:47 | WARNING  | NeuroFocus | Лицо пользователя потеряно на 5.0 секунд
+11:59:57 | INFO     | NeuroFocus | Завершение работы приложения...
+11:59:57 | INFO     | NeuroFocus | Ежедневный прогресс обновлен
+11:59:57 | INFO     | NeuroFocus | Приложение завершено
+12:41:05 | ERROR    | NeuroFocus | Ошибка инициализации процессоров: No module named 'yaml'
+12:41:05 | INFO     | NeuroFocus | VideoThread инициализирован
+12:41:05 | ERROR    | NeuroFocus | Ошибка инициализации HandProcessor: No module named 'yaml'
+12:41:05 | ERROR    | NeuroFocus | VideoThread: процессоры не инициализированы
+12:41:05 | INFO     | NeuroFocus | Приложение запущено успешно
+12:41:32 | INFO     | NeuroFocus | Завершение работы приложения...
+12:41:32 | INFO     | NeuroFocus | Ежедневный прогресс обновлен
+12:41:32 | INFO     | NeuroFocus | Приложение завершено
+12:43:18 | ERROR    | NeuroFocus | Ошибка инициализации процессоров: No module named 'yaml'
+12:43:18 | INFO     | NeuroFocus | VideoThread инициализирован
+12:43:18 | ERROR    | NeuroFocus | Ошибка инициализации HandProcessor: No module named 'yaml'
+12:43:18 | ERROR    | NeuroFocus | VideoThread: процессоры не инициализированы
+12:43:18 | INFO     | NeuroFocus | Приложение запущено успешно
+12:43:34 | INFO     | NeuroFocus | Завершение работы приложения...
+12:43:34 | INFO     | NeuroFocus | Ежедневный прогресс обновлен
+12:43:34 | INFO     | NeuroFocus | Приложение завершено
+12:47:09 | INFO     | NeuroFocus | Emotion detector initialized
+12:47:09 | ERROR    | NeuroFocus | Ошибка инициализации процессоров: (sqlite3.OperationalError) unable to open database file
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+12:47:09 | INFO     | NeuroFocus | VideoThread инициализирован
+12:47:09 | ERROR    | NeuroFocus | VideoThread: процессоры не инициализированы
+12:47:09 | INFO     | NeuroFocus | Приложение запущено успешно
+12:48:35 | INFO     | NeuroFocus | Завершение работы приложения...
+12:48:35 | INFO     | NeuroFocus | Ежедневный прогресс обновлен
+12:48:35 | INFO     | NeuroFocus | Приложение завершено
+12:49:01 | INFO     | NeuroFocus | Emotion detector initialized
+12:49:01 | INFO     | NeuroFocus | VideoThread инициализирован
+12:49:01 | INFO     | NeuroFocus | Приложение запущено успешно
+12:49:04 | INFO     | NeuroFocus | Завершение работы приложения...
+12:49:05 | INFO     | NeuroFocus | VideoThread: камера запущена
+12:49:05 | INFO     | NeuroFocus | VideoThread: завершен
+12:49:05 | INFO     | NeuroFocus | Ежедневный прогресс обновлен
+12:49:05 | INFO     | NeuroFocus | Приложение завершено
+12:51:40 | INFO     | NeuroFocus | Emotion detector initialized
+12:51:40 | INFO     | NeuroFocus | VideoThread инициализирован
+12:51:40 | INFO     | NeuroFocus | Приложение запущено успешно
+12:51:58 | INFO     | NeuroFocus | Emotion detector initialized
+12:51:58 | INFO     | NeuroFocus | VideoThread инициализирован
+12:51:58 | INFO     | NeuroFocus | Приложение запущено успешно
+12:52:11 | INFO     | NeuroFocus | Emotion detector initialized
+12:52:11 | INFO     | NeuroFocus | VideoThread инициализирован
+12:52:11 | INFO     | NeuroFocus | Приложение запущено успешно
+12:52:15 | INFO     | NeuroFocus | VideoThread: камера запущена
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:16 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:17 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:18 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:19 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:20 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:21 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:21 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none
+12:52:21 | DEBUG    | NeuroFocus | Hand: detected=None, gesture=none

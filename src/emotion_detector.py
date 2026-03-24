@@ -1,9 +1,15 @@
-#Обрати внимание на метод preprocess_input — это то, о чем нужно будет написать в дипломе в разделе "Подготовка данных".
 import cv2
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import load_model
 from collections import deque, Counter
+
+tensorflow_available = False
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import load_model
+    tensorflow_available = True
+except (ImportError, Exception) as e:
+    print(f"TensorFlow not available: {e}")
+    print("Emotion detection will be disabled")
 
 class EmotionDetector:
     def __init__(self, model_path):
@@ -11,12 +17,12 @@ class EmotionDetector:
         Инициализация детектора эмоций со стабилизацией.
         """
         self.EMOTIONS = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
-        
-        # --- НАСТРОЙКА СГЛАЖИВАНИЯ ---
-        # Храним последние 5 предсказаний. 
-        # Если эмоции меняются слишком медленно, уменьши число до 3.
         self.emotion_history = deque(maxlen=5) 
         
+        if not tensorflow_available:
+            self.model = None
+            return
+            
         try:
             self.model = load_model(model_path, compile=False)
             self.target_size = self.model.input_shape[1:3] 

@@ -1,0 +1,12 @@
+{
+    "work_limit_minutes": 45,
+    "posture_window_minutes": 3,
+    "posture_bad_percent": 30,
+    "yawn_limit": 4,
+    "yawn_window_minutes": 10,
+    "minimize_to_tray": true,
+    "sound_volume": 0.51,
+    "sound_enabled": true,
+    "theme": "dark",
+    "test_key": "default"
+}
