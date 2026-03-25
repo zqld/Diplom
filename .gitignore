@@ -1,0 +1,80 @@
+# NeuroFocus - .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Виртуальные окружения
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# PyCharm
+.idea/
+
+# Логи
+logs/
+*.log
+
+# Базы данных SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Модели ML (скачиваются отдельно)
+models/*.keras
+models/*.h5
+models/*.hdf5
+models/*.task
+
+# Данные пользователя
+data/
+user_profiles/
+calibration.json
+
+# Скомпилированные UI
+ui_compiled/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Локальные бэкапы
+Backup_working/
+backup/
+
+# Тестовые файлы
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Временные файлы
+temp/
+tmp/
+*.tmp
