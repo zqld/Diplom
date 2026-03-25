@@ -1,8 +1,33 @@
-opencv-python #для работы с изображениями
-mediapipe #для лица
-numpy #для вычислений
-pandas #для работы с данными
-PyQt6 #для интерфейса
-sqlalchemy #для базы данных
-matplotlib #для графиков
-tensorflow #для загрузки модели
+# NeuroFocus - Requirements
+# Установка: pip install -r requirements.txt
+# Проверено: работает с Python 3.11
+
+# Компьютерное зрение
+opencv-python==4.13.0.92
+opencv-contrib-python==4.13.0.92
+mediapipe==0.10.32
+
+# Вычисления и данные
+numpy==2.4.3
+pandas==3.0.1
+
+# GUI
+PyQt6==6.10.2
+
+# Машинное обучение
+tensorflow==2.21.0
+tensorflow-hub==0.16.1
+scikit-learn==1.8.0
+
+# Визуализация
+matplotlib==3.10.8
+
+# Управление мышью жестами
+PyAutoGUI==0.9.54
+
+# Утилиты
+Pillow==12.1.1
+
+# Опционально
+pygame==2.6.1
+pytest==9.0.2
