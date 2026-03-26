@@ -10,6 +10,7 @@ mediapipe==0.10.32
 # Вычисления и данные
 numpy==2.4.3
 pandas==3.0.1
+sqlalchemy==2.0.40
 
 # GUI
 PyQt6==6.10.2
