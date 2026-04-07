@@ -5,10 +5,11 @@ from src.logger import logger
 
 
 class PostureProcessor:
-    def __init__(self):
+    def __init__(self, calibration_manager=None):
         self._config = config_manager.posture
         self._window_size = self._config.get('window_size_seconds', 5)
-        
+        self._calibration = calibration_manager
+
         self.analyzer = PostureAnalyzer(window_size_seconds=self._window_size)
         self._posture_start_time = None
         self._time_trigger = self._config.get('posture_time_trigger', 1.0)
@@ -41,6 +42,11 @@ class PostureProcessor:
                 result['head_tilt'] = posture_data.get("head_tilt", 0)
                 result['head_forward'] = posture_data.get("head_forward", 0)
                 
+                result['posture_score'] = posture_data.get("posture_score", 0)
+                result['posture_level'] = posture_data.get("posture_level", "good")
+                result['head_tilt'] = posture_data.get("head_tilt", 0)
+                result['head_forward'] = posture_data.get("head_forward", 0)
+                
                 if posture_data.get("is_bad", False):
                     result['is_bad'] = True
                     result['posture_status'] = "Bad Posture"
@@ -58,9 +64,8 @@ class PostureProcessor:
                     if current_time - self._last_event_time >= self._cooldown:
                         self._last_event_time = current_time
             
-            pitch_min = config_manager.face.get('pitch_threshold_min', 0.0)
-            pitch_max = config_manager.face.get('pitch_threshold_max', 30.0)
-            
+            pitch_min = config_manager.face.get('pitch_threshold_min', -5.0)
+            pitch_max = config_manager.face.get('pitch_threshold_max', 35.0)
             if pitch < pitch_min or pitch > pitch_max:
                 if self._posture_start_time is None:
                     self._posture_start_time = current_time
@@ -85,6 +90,10 @@ class PostureProcessor:
         self._posture_start_time = None
         self._last_event_time = 0
     
+    def set_calibration_manager(self, calibration_manager):
+        """Обновить ссылку на CalibrationManager (можно вызвать после инициализации)."""
+        self._calibration = calibration_manager
+
     def reload_config(self):
         self._config = config_manager.posture
         self._window_size = self._config.get('window_size_seconds', 5)

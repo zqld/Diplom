@@ -1,274 +1,352 @@
+"""
+GestureController — управление мышью жестами руки.
+
+Улучшения v2:
+- Правильное маппирование: нормализованные координаты MediaPipe → экран
+  через «активную зону» камеры (центральные 60–80 % кадра → весь экран).
+- Единственный EMA-фильтр (нет двойного сглаживания).
+- Dead-zone: игнорируем дрожание < 4 пикселей.
+- Sensitivity управляет шириной активной зоны: выше → зона уже → движение резче.
+- Клик-жест: кулак (все пальцы сжаты) → ЛКМ; V-жест (указ.+средний) → ПКМ.
+- Скролл: три пальца вверх/вниз.
+"""
+
 import time
 import math
 import pyautogui
 from collections import deque
 
+pyautogui.FAILSAFE = False
+
+try:
+    import screeninfo
+    _m = screeninfo.get_monitors()
+    PRIMARY_SCREEN_WIDTH  = _m[0].width  if _m else pyautogui.size().width
+    PRIMARY_SCREEN_HEIGHT = _m[0].height if _m else pyautogui.size().height
+except Exception:
+    PRIMARY_SCREEN_WIDTH  = pyautogui.size().width
+    PRIMARY_SCREEN_HEIGHT = pyautogui.size().height
+
 
 class GestureController:
-    """
-    Контроллер жестов для управления мышью.
-    Распознаёт жесты и выполняет соответствующие действия.
-    """
-    
+    """Управление мышью жестами руки через нормализованные MediaPipe landmarks."""
+
+    # ── Жесты ─────────────────────────────────────────────────────────────────
+    GESTURE_CURSOR      = "cursor"       # указательный вверх → движение мыши
+    GESTURE_LEFT_CLICK  = "left_click"   # кулак
+    GESTURE_RIGHT_CLICK = "right_click"  # указательный + мизинец
+    GESTURE_SCROLL_UP   = "scroll_up"    # 3 пальца: указат+средний+безымянный (без мизинца)
+    GESTURE_SCROLL_DOWN = "scroll_down"  # 4 пальца: указат+средний+безымянный+мизинец
+    GESTURE_NONE        = "none"
+
     def __init__(self, screen_width=None, screen_height=None, calibration_manager=None):
-        """
-        Инициализация контроллера жестов.
-        
-        Args:
-            screen_width, screen_height: Размеры экрана
-            calibration_manager: Менеджер калибровки
-        """
-        # Настройки экрана
-        self.screen_width = screen_width or pyautogui.size()[0]
-        self.screen_height = screen_height or pyautogui.size()[1]
-        
-        # Calibration manager
-        self.calibration = calibration_manager
-        
-        # Параметры управления
-        self.smoothing = 10  # Коэффициент сглаживания (больше = плавнее)
-        self.click_threshold = 0.055  # Порог для пинча
-        self.drag_threshold = 0.06
-        
-        # Состояние
-        self.enabled = False
-        self.previous_x = self.screen_width // 2
-        self.previous_y = self.screen_height // 2
-        
-        # Отслеживание жестов
-        self.is_pinching = False
-        self.is_dragging = False
-        self.last_click_time = 0
-        self.click_cooldown = 0.3  # Секунды между кликами
-        
-        # История для сглаживания
-        self.position_history = deque(maxlen=5)
-        
-        # Отображение координат (зеркалирование для веб-камеры)
-        self.mirror_x = False
-        self.mirror_y = False
-        
-        # Состояние руки
-        self.hand_detected = False
-        self.current_gesture = "none"
-        
-        # Sensitivity - загружаем из calibration если есть
+        self.screen_width  = screen_width  or PRIMARY_SCREEN_WIDTH
+        self.screen_height = screen_height or PRIMARY_SCREEN_HEIGHT
+        self.calibration   = calibration_manager
+
+        # ── Состояние ────────────────────────────────────────────────────────
+        self.enabled         = False
+        self.current_gesture = self.GESTURE_NONE
+        self.hand_detected   = False
+
+        # Позиция курсора (сглаженная)
+        self.prev_x = self.screen_width  // 2
+        self.prev_y = self.screen_height // 2
+
+        # ── Параметры сглаживания ─────────────────────────────────────────────
+        # Адаптивный EMA: при малых движениях (шум/дрожание) alpha низкий →
+        # плавно; при быстрых намеренных движениях alpha растёт → отзывчиво.
+        self._alpha_slow = 0.12   # alpha при скорости < _speed_slow px/тик
+        self._alpha_fast = 0.45   # alpha при скорости > _speed_fast px/тик
+        self._speed_slow = 20.0   # px/тик — нижняя граница «быстрого» движения
+        self._speed_fast = 120.0  # px/тик — верхняя граница
+
+        # Dead-zone: движения меньше этого порога игнорируются (шум пикселей).
+        self._dead_zone  = 6      # px
+
+        # Защита от выбросов: если целевая позиция прыгает дальше порога от
+        # текущей сглаженной — скорее всего ошибка детекции.
+        # _outlier_consecutive считает подряд идущие выбросы:
+        # 1-2 кадра → одиночная ошибка, игнорируем (цель → prev).
+        # 3+ кадров → скорее всего смена зоны калибровки; телепортируем prev к цели.
+        self._outlier_threshold   = 280  # px
+        self._outlier_consecutive = 0    # счётчик подряд идущих выбросов
+
+        # ── Активная зона камеры ─────────────────────────────────────────────
+        # base_margin: отступ от края кадра (нормализованный 0..0.5).
+        # Зона [margin, 1-margin] × [margin, 1-margin] → весь экран.
+        # sensitivity=1 → margin≈0.15 (центр. 70 % кадра);
+        # sensitivity=2 → margin≈0.08 (центр. 84 %); sensitivity=0.5 → margin≈0.25.
+        self._base_margin = 0.15
+
+        # ── Чувствительность ─────────────────────────────────────────────────
         self._sensitivity = 1.0
         if calibration_manager and calibration_manager.sensitivity:
             self._sensitivity = calibration_manager.sensitivity
-        
+
+        # ── Стабилизация жестов ───────────────────────────────────────────────
+        # Клик выполняется только после N одинаковых кадров подряд.
+        self._gesture_buf    = deque(maxlen=6)
+        self._stable_frames  = 4   # нужно 4 кадра одинакового жеста для кликов
+        self._last_confirmed = self.GESTURE_NONE
+
+        # ── Кулдауны ─────────────────────────────────────────────────────────
+        self._last_click_time  = 0.0
+        self._click_cooldown   = 0.45   # сек между кликами
+        self._last_scroll_time = 0.0
+        self._scroll_cooldown  = 0.12   # сек между тиками скролла
+
+    # ── Публичный API ─────────────────────────────────────────────────────────
     def enable(self):
-        """Включить управление мышью."""
         self.enabled = True
-        self.is_pinching = False
-        self.is_dragging = False
-        print("[GestureControl] Управление мышью ВКЛ")
-        
+        self.prev_x  = self.screen_width  // 2
+        self.prev_y  = self.screen_height // 2
+        self._gesture_buf.clear()
+        self._last_confirmed = self.GESTURE_NONE
+        self._outlier_consecutive = 0
+
     def disable(self):
-        """Выключить управление мышью."""
         self.enabled = False
-        self.is_dragging = False
-        print("[GestureControl] Управление мышью ВЫКЛ")
-        
-    def toggle(self):
-        """Переключить состояние."""
+        self.hand_detected = False
+
+    def toggle(self) -> bool:
         if self.enabled:
             self.disable()
         else:
             self.enable()
         return self.enabled
-    
-    def process_hand(self, hand_landmarks, frame_width, frame_height, fingers_up):
-        """
-        Обработать данные руки и выполнить действия.
-        
-        Args:
-            hand_landmarks: landmarks руки
-            frame_width, frame_height: размеры кадра
-            fingers_up: список пальцев [thumb, index, middle, ring, pinky]
-            
-        Returns:
-            Текущий жест (строка)
-        """
-        if not self.enabled or not hand_landmarks:
-            self.current_gesture = "none"
-            return "disabled"
-        
-        self.hand_detected = True
-        
-        # Получаем координаты
-        index_tip = hand_landmarks.landmark[8]
-        thumb_tip = hand_landmarks.landmark[4]
-        middle_tip = hand_landmarks.landmark[12]
-        
-        # Преобразуем в координаты экрана
-        cursor_x = int(index_tip.x * frame_width)
-        cursor_y = int(index_tip.y * frame_height)
-        
-        # Применяем зеркалирование
-        if self.mirror_x:
-            cursor_x = frame_width - cursor_x
-        
-        # Вычисляем размер руки для калибровки
-        hand_size = self._calculate_hand_size(hand_landmarks)
-        
-        # Получаем чувствительность
-        sensitivity = self._sensitivity
-        if self.calibration:
-            sensitivity = self.calibration.sensitivity
-        
-        # Простое преобразование координат: позиция на камере -> позиция на экране
-        # Без дополнительных множителей, только чувствительность
-        scale_factor = 0.8 * sensitivity
-        
-        screen_x = int(cursor_x * self.screen_width * scale_factor / frame_width)
-        screen_y = int(cursor_y * self.screen_height * scale_factor / frame_height)
-        
-        # Ограничиваем в пределах экрана
-        screen_x = max(0, min(self.screen_width - 1, screen_x))
-        screen_y = max(0, min(self.screen_height - 1, screen_y))
-        
-        # Сглаживание - большее значение = более плавно
-        smooth_factor = self.smoothing / 10.0
-        smooth_x = int(self.previous_x + (screen_x - self.previous_x) * smooth_factor)
-        smooth_y = int(self.previous_y + (screen_y - self.previous_y) * smooth_factor)
-        
-        # Вычисляем расстояния для жестов
-        pinch_distance = self._calculate_distance(
-            hand_landmarks.landmark[4],  # thumb
-            hand_landmarks.landmark[8]    # index
-        )
-        
-        drag_distance = self._calculate_distance(
-            hand_landmarks.landmark[8],   # index
-            hand_landmarks.landmark[12]   # middle
-        )
-        
-        current_time = time.time()
-        
-        # Определяем жест
-        gesture = self._determine_gesture(
-            fingers_up, 
-            pinch_distance, 
-            drag_distance,
-            hand_landmarks
-        )
-        
-        self.current_gesture = gesture
-        
-        # Выполняем действие на основе жеста
-        if gesture == "cursor":
-            # Движение курсора
-            pyautogui.moveTo(smooth_x, smooth_y, _pause=False)
-            self.previous_x = smooth_x
-            self.previous_y = smooth_y
-            
-        elif gesture == "left_click":
-            # Левый клик (пинч)
-            if not self.is_pinching and current_time - self.last_click_time > self.click_cooldown:
-                pyautogui.click(button='left', _pause=False)
-                self.last_click_time = current_time
-                self.is_pinching = True
-                
-        elif gesture == "right_click":
-            # Правый клик (указательный + средний вместе)
-            if not self.is_pinching and current_time - self.last_click_time > self.click_cooldown:
-                pyautogui.click(button='right', _pause=False)
-                self.last_click_time = current_time
-                self.is_pinching = True
-                
-        elif gesture == "drag":
-            # Перетаскивание (кулак)
-            if not self.is_dragging:
-                pyautogui.mouseDown(_pause=False)
-                self.is_dragging = True
-            pyautogui.moveTo(smooth_x, smooth_y, _pause=False)
-            self.previous_x = smooth_x
-            self.previous_y = smooth_y
-            
-        elif gesture == "drag_release":
-            # Отпускание перетаскивания
-            if self.is_dragging:
-                pyautogui.mouseUp(_pause=False)
-                self.is_dragging = False
-                    
-        elif gesture == "pinch_release":
-            # Освобождение от пинча
-            self.is_pinching = False
-            
-        return gesture
-    
-    def _determine_gesture(self, fingers_up, pinch_distance, drag_distance, hand_landmarks):
-        """
-        Определить текущий жест.
-        
-        Fingers: [thumb, index, middle, ring, pinky]
-        """
-        thumb, index, middle, ring, pinky = fingers_up
-        
-        # Пинч для клика (большой + указательный близко)
-        if pinch_distance < self.click_threshold:
-            if self.is_dragging:
-                return "drag_release"
-            return "left_click"
-        
-        # Освобождение пинча
-        if self.is_pinching and pinch_distance > self.click_threshold + 0.02:
-            return "pinch_release"
-        
-        # Правый клик (указательный + средний близко)
-        if drag_distance < self.drag_threshold and index and middle and not (thumb or ring or pinky):
-            if not self.is_pinching:
-                return "right_click"
-        
-        # Перетаскивание (кулак - все пальцы согнуты)
-        if not index and not middle and not ring and not pinky and not thumb:
-            return "drag"
-        
-        # Обычное движение (только указательный поднят)
-        if index and not middle and not ring and not pinky and not self.is_dragging:
-            return "cursor"
-        
-        return "none"
-    
-    def _calculate_distance(self, point1, point2):
-        """Рассчитать нормированное расстояние между точками."""
-        return math.sqrt(
-            (point1.x - point2.x)**2 + 
-            (point1.y - point2.y)**2
-        )
-    
-    def _calculate_hand_size(self, hand_landmarks):
-        """Рассчитать размер руки на основе расстояния между запястьем и средним пальцем."""
-        wrist = hand_landmarks.landmark[0]
-        middle_pip = hand_landmarks.landmark[10]
-        
-        return math.sqrt((wrist.x - middle_pip.x)**2 + (wrist.y - middle_pip.y)**2)
-    
-    def set_sensitivity(self, value):
-        """Установить чувствительность (0.3 - 3.0)."""
-        self._sensitivity = max(0.3, min(3.0, value))
+
+    def set_sensitivity(self, value: float):
+        self._sensitivity = max(0.3, min(3.0, float(value)))
         if self.calibration:
             self.calibration.set_sensitivity(self._sensitivity)
-    
-    def get_sensitivity(self):
-        """Получить текущую чувствительность."""
+
+    def get_sensitivity(self) -> float:
         return self._sensitivity
-    
-    def get_status(self):
-        """Получить текущий статус."""
+
+    def get_status(self) -> dict:
         return {
-            'enabled': self.enabled,
-            'gesture': self.current_gesture,
+            'enabled':      self.enabled,
+            'gesture':      self.current_gesture,
             'hand_detected': self.hand_detected,
-            'is_dragging': self.is_dragging,
-            'sensitivity': self._sensitivity,
+            'sensitivity':  self._sensitivity,
         }
-    
+
     def reset(self):
-        """Сбросить состояние."""
-        self.is_pinching = False
-        self.is_dragging = False
-        self.hand_detected = False
-        self.current_gesture = "none"
-        self.position_history.clear()
+        self._gesture_buf.clear()
+        self._last_confirmed = self.GESTURE_NONE
+        self.current_gesture = self.GESTURE_NONE
+        self.hand_detected   = False
+        self._outlier_consecutive = 0
+
+    # ── Основной метод обработки ──────────────────────────────────────────────
+    def process_hand(self, hand_landmarks, frame_width, frame_height,
+                     fingers_up, hand_x=None, hand_y=None, hand_size=None):
+        """
+        Обработать кадр с рукой.
+
+        Args:
+            hand_landmarks : MediaPipe NormalizedLandmarkList (21 точка)
+            frame_width/height: размеры кадра (используются только для совместимости)
+            fingers_up     : [thumb, index, middle, ring, pinky] — bool-список
+            hand_x/y/size  : необязательные доп. данные (игнорируются в v2)
+
+        Returns:
+            str — текущий подтверждённый жест
+        """
+        if not self.enabled or not hand_landmarks:
+            self.current_gesture = self.GESTURE_NONE
+            return "disabled"
+
+        self.hand_detected = True
+        now = time.time()
+
+        # ── 1. Координаты из нормализованных landmarks ─────────────────────
+        # Используем landmark[5] (index MCP) — стабильнее, чем кончик пальца.
+        lm = hand_landmarks.landmark[5]
+        lm_x = lm.x   # 0..1
+        lm_y = lm.y   # 0..1
+
+        # ── 2. Маппирование активной зоны → экран ──────────────────────────
+        # Если зона откалибрована — используем личные границы пользователя.
+        # Иначе: вычисляем симметричный margin из sensitivity.
+        if (self.calibration and
+                getattr(self.calibration, 'gesture_zone', {}).get('calibrated')):
+            gz = self.calibration.gesture_zone
+            zone_x0 = gz['x_min']
+            zone_y0 = gz['y_min']
+            zone_w  = max(0.01, gz['x_max'] - gz['x_min'])
+            zone_h  = max(0.01, gz['y_max'] - gz['y_min'])
+        else:
+            margin  = max(0.04, self._base_margin / self._sensitivity)
+            zone_x0 = margin
+            zone_y0 = margin
+            zone_w  = max(0.01, 1.0 - 2 * margin)
+            zone_h  = max(0.01, 1.0 - 2 * margin)
+
+        norm_x = max(0.0, min(1.0, (lm_x - zone_x0) / zone_w))
+        norm_y = max(0.0, min(1.0, (lm_y - zone_y0) / zone_h))
+
+        target_x = norm_x * self.screen_width
+        target_y = norm_y * self.screen_height
+
+        # ── 3. Защита от выбросов (outlier rejection) ──────────────────────
+        # Если целевая позиция прыгает дальше порога — два случая:
+        #   • 1–2 кадра подряд → одиночная ошибка детекции, держим prev.
+        #   • 3+ кадров подряд → смена зоны калибровки / реальное перемещение;
+        #     телепортируем prev к цели, чтобы не заморозить курсор навсегда.
+        raw_dx = target_x - self.prev_x
+        raw_dy = target_y - self.prev_y
+        if math.sqrt(raw_dx * raw_dx + raw_dy * raw_dy) > self._outlier_threshold:
+            self._outlier_consecutive += 1
+            if self._outlier_consecutive >= 3:
+                # Принимаем прыжок — обновляем prev без движения мыши
+                self.prev_x = target_x
+                self.prev_y = target_y
+            else:
+                target_x = self.prev_x
+                target_y = self.prev_y
+        else:
+            self._outlier_consecutive = 0
+
+        # ── 4. Адаптивный EMA-фильтр ───────────────────────────────────────
+        # Скорость «сырого» смещения определяет alpha:
+        #   - малая скорость (шум/дрожание) → низкий alpha → плавно
+        #   - высокая скорость (намеренный жест) → высокий alpha → отзывчиво
+        raw_speed = math.sqrt(raw_dx * raw_dx + raw_dy * raw_dy)
+        t = max(0.0, min(1.0,
+                         (raw_speed - self._speed_slow) /
+                         max(1.0, self._speed_fast - self._speed_slow)))
+        # Sensitivity сдвигает оба предела вверх при высокой чувствительности
+        s_boost = (self._sensitivity - 1.0) * 0.04
+        alpha = (self._alpha_slow + s_boost) + t * (self._alpha_fast - self._alpha_slow)
+        alpha = max(0.05, min(0.60, alpha))
+
+        new_x = self.prev_x + (target_x - self.prev_x) * alpha
+        new_y = self.prev_y + (target_y - self.prev_y) * alpha
+
+        # ── 5. Dead-zone ───────────────────────────────────────────────────
+        dx = abs(new_x - self.prev_x)
+        dy = abs(new_y - self.prev_y)
+        if dx < self._dead_zone and dy < self._dead_zone:
+            new_x = self.prev_x
+            new_y = self.prev_y
+
+        # Клипируем к экрану
+        new_x = max(0, min(self.screen_width  - 1, new_x))
+        new_y = max(0, min(self.screen_height - 1, new_y))
+        final_x = int(new_x)
+        final_y = int(new_y)
+
+        # ── 6. Определение жеста ───────────────────────────────────────────
+        raw_gesture = self._classify_gesture(fingers_up, hand_landmarks)
+        self._gesture_buf.append(raw_gesture)
+        confirmed = self._confirm_gesture()
+        self.current_gesture = confirmed
+
+        # ── 7. Выполнение действия ─────────────────────────────────────────
+        if confirmed == self.GESTURE_CURSOR:
+            pyautogui.moveTo(final_x, final_y, _pause=False)
+            self.prev_x = new_x
+            self.prev_y = new_y
+
+        elif confirmed == self.GESTURE_LEFT_CLICK:
+            if now - self._last_click_time > self._click_cooldown:
+                pyautogui.click(button='left', _pause=False)
+                self._last_click_time = now
+
+        elif confirmed == self.GESTURE_RIGHT_CLICK:
+            if now - self._last_click_time > self._click_cooldown:
+                pyautogui.click(button='right', _pause=False)
+                self._last_click_time = now
+
+        elif confirmed == self.GESTURE_SCROLL_UP:
+            if now - self._last_scroll_time > self._scroll_cooldown:
+                pyautogui.scroll(3, _pause=False)
+                self._last_scroll_time = now
+            # Движение мыши тоже обновляем
+            self.prev_x = new_x
+            self.prev_y = new_y
+
+        elif confirmed == self.GESTURE_SCROLL_DOWN:
+            if now - self._last_scroll_time > self._scroll_cooldown:
+                pyautogui.scroll(-3, _pause=False)
+                self._last_scroll_time = now
+            self.prev_x = new_x
+            self.prev_y = new_y
+
+        else:
+            # none — просто обновляем позицию для плавного старта
+            self.prev_x = new_x
+            self.prev_y = new_y
+
+        return confirmed
+
+    # ── Внутренние методы ─────────────────────────────────────────────────────
+    def _classify_gesture(self, fingers_up, hand_landmarks) -> str:
+        """
+        Классифицировать жест на основе подъёма пальцев.
+
+        fingers_up = [thumb, index, middle, ring, pinky]
+        """
+        thumb, index, middle, ring, pinky = fingers_up
+
+        # Кулак (все согнуты) → ЛКМ
+        if not index and not middle and not ring and not pinky:
+            return self.GESTURE_LEFT_CLICK
+
+        # Указательный + мизинец (без среднего и безымянного) → ПКМ
+        if index and pinky and not middle and not ring:
+            return self.GESTURE_RIGHT_CLICK
+
+        # 4 пальца (указат+средний+безымянный+мизинец, без большого) → прокрутка вниз
+        # Проверяем ДО трёх пальцев, т.к. это надмножество
+        if index and middle and ring and pinky and not thumb:
+            return self.GESTURE_SCROLL_DOWN
+
+        # 3 пальца (указат+средний+безымянный, без мизинца) → прокрутка вверх
+        if index and middle and ring and not pinky:
+            return self.GESTURE_SCROLL_UP
+
+        # Только указательный → движение курсора
+        if index and not middle and not ring and not pinky:
+            return self.GESTURE_CURSOR
+
+        return self.GESTURE_NONE
+
+    def _confirm_gesture(self) -> str:
+        """
+        Вернуть подтверждённый жест.
+        - Клики требуют `_stable_frames` одинаковых кадров.
+        - Движение и скролл — мгновенны (чтобы не было задержки).
+        """
+        if not self._gesture_buf:
+            return self.GESTURE_NONE
+
+        latest = self._gesture_buf[-1]
+
+        # Движение и скролл — подтверждаем сразу
+        if latest in (self.GESTURE_CURSOR, self.GESTURE_SCROLL_UP,
+                      self.GESTURE_SCROLL_DOWN, self.GESTURE_NONE):
+            self._last_confirmed = latest
+            return latest
+
+        # Клики: нужно N одинаковых кадров подряд
+        recent = list(self._gesture_buf)[-self._stable_frames:]
+        if len(recent) == self._stable_frames and len(set(recent)) == 1:
+            confirmed = recent[0]
+        else:
+            confirmed = self._last_confirmed  # держим предыдущий подтверждённый
+
+        self._last_confirmed = confirmed
+        return confirmed
+
+    # ── Совместимость со старым кодом ────────────────────────────────────────
+    def _calculate_distance(self, p1, p2) -> float:
+        return math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2)
+
+    def _calculate_hand_size(self, hand_landmarks) -> float:
+        return self._calculate_distance(
+            hand_landmarks.landmark[0],
+            hand_landmarks.landmark[10]
+        )

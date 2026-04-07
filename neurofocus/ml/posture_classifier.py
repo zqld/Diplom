@@ -191,87 +191,105 @@ class PostureClassifier:
             }
     
     def _predict_geometric(self, pose_landmarks):
-        """Fallback: use geometric features from pose landmarks."""
+        """
+        Геометрическая классификация осанки по плечам и положению головы.
+
+        Работает в нормализованных координатах (0-1) MediaPipe Pose:
+          nose        = landmark 0
+          left_ear    = landmark 7
+          right_ear   = landmark 8
+          left_shoulder  = landmark 11
+          right_shoulder = landmark 12
+
+        Критерии (все в нормализованных единицах, Y растёт вниз):
+          head_height  — расстояние носа над центром плеч по Y.
+                         Норма: 0.20–0.40. Меньше → голова опустилась / ссутулился.
+          shoulder_diff — |left_shoulder.y − right_shoulder.y|.
+                         Норма: < 0.05. Больше → один локоть поднят, тело наклонено.
+          shoulder_angle — угол линии плеч в градусах.
+                         Норма: < 8°. Больше → видимый наклон корпуса.
+        """
+        import math
+
         try:
-            from .preprocessing import extract_pose_features
-            
-            features = extract_pose_features(pose_landmarks)
-            
-            if features is None:
-                return {
-                    'status': 'unknown',
-                    'confidence': 0.0,
-                    'raw_scores': [0.0, 0.0, 0.0]
-                }
-            
-            # features = [shoulder_angle, shoulder_y_diff, shoulder_width, 
-            #              forward_lean, hip_y_diff, torso_tilt, torso_length]
-            
-            shoulder_angle = abs(features[0]) * 180 / 3.14159  # Convert to degrees
-            shoulder_diff = features[1]
-            forward_lean = abs(features[3])
-            
-            scores = [0.0, 0.0, 0.0]  # [good, fair, bad]
-            
-            # Classification based on thresholds
+            # Получаем список landmarks
+            if hasattr(pose_landmarks, 'landmark'):
+                lms = pose_landmarks.landmark
+            elif isinstance(pose_landmarks, list) and pose_landmarks and hasattr(pose_landmarks[0], 'x'):
+                lms = pose_landmarks
+            else:
+                return {'status': 'unknown', 'confidence': 0.0, 'raw_scores': [0.0, 0.0, 0.0]}
+
+            if len(lms) < 13:
+                return {'status': 'unknown', 'confidence': 0.0, 'raw_scores': [0.0, 0.0, 0.0]}
+
+            nose       = (lms[0].x,  lms[0].y)
+            l_shoulder = (lms[11].x, lms[11].y)
+            r_shoulder = (lms[12].x, lms[12].y)
+
+            # ── 1. Высота головы над плечами ────────────────────────────────
+            shoulder_cy = (l_shoulder[1] + r_shoulder[1]) / 2.0
+            head_height = shoulder_cy - nose[1]   # > 0 когда нос выше плеч
+
+            # ── 2. Асимметрия плеч по вертикали ────────────────────────────
+            shoulder_diff = abs(l_shoulder[1] - r_shoulder[1])
+
+            # ── 3. Угол наклона линии плеч ──────────────────────────────────
+            dx = r_shoulder[0] - l_shoulder[0]
+            dy = r_shoulder[1] - l_shoulder[1]
+            shoulder_angle = abs(math.degrees(math.atan2(dy, dx + 1e-6)))
+            # atan2 может вернуть угол > 90° для почти вертикальных линий;
+            # берём эквивалентный острый угол
+            if shoulder_angle > 90:
+                shoulder_angle = 180 - shoulder_angle
+
+            # ── Подсчёт баллов ──────────────────────────────────────────────
             bad_score = 0
-            fair_score = 0
-            
-            # Check shoulder tilt
-            if shoulder_angle > self._shoulder_tilt_threshold:
-                bad_score += 40
-            elif shoulder_angle > 8:
-                fair_score += 20
-            
-            # Check shoulder asymmetry
-            if shoulder_diff > self._shoulder_diff_threshold:
-                bad_score += 30
-            elif shoulder_diff > 10:
-                fair_score += 15
-            
-            # Check forward lean
-            if forward_lean > self._forward_lean_threshold:
-                bad_score += 30
-            elif forward_lean > 0.05:
-                fair_score += 15
-            
-            # Determine final status
-            if bad_score >= 50:
+
+            # Голова слишком близко к плечам (ссутулился / откинулся назад)
+            if head_height < 0.15:
+                bad_score += 45
+            elif head_height < 0.22:
+                bad_score += 20
+
+            # Асимметрия плеч
+            if shoulder_diff > 0.08:
+                bad_score += 35
+            elif shoulder_diff > 0.045:
+                bad_score += 15
+
+            # Наклон корпуса
+            if shoulder_angle > 12:
+                bad_score += 20
+            elif shoulder_angle > 7:
+                bad_score += 8
+
+            # ── Итог ────────────────────────────────────────────────────────
+            if bad_score >= 45:
                 status = 'bad'
-                confidence = min(1.0, bad_score / 100)
-                scores[2] = 0.8
-                scores[1] = 0.15
-            elif fair_score >= 30:
+                confidence = min(0.92, bad_score / 100.0)
+            elif bad_score >= 22:
                 status = 'fair'
-                confidence = min(1.0, fair_score / 60)
-                scores[1] = 0.7
-                scores[0] = 0.2
+                confidence = 0.65
             else:
                 status = 'good'
-                confidence = 0.85
-                scores[0] = 0.85
-                scores[1] = 0.1
-            
-            # Apply smoothing
+                confidence = 0.88
+
             self.prediction_history.append(status)
             smoothed_status = self._smooth_prediction()
-            
+
             return {
                 'status': smoothed_status,
                 'confidence': confidence,
-                'raw_scores': scores,
-                'shoulder_tilt': shoulder_angle,
+                'raw_scores': [0.0, 0.0, 0.0],
+                'shoulder_angle': shoulder_angle,
                 'shoulder_diff': shoulder_diff,
-                'forward_lean': forward_lean
+                'head_height': head_height,
             }
-            
+
         except Exception as e:
             print(f"Error in geometric posture prediction: {e}")
-            return {
-                'status': 'unknown',
-                'confidence': 0.0,
-                'raw_scores': [0.0, 0.0, 0.0]
-            }
+            return {'status': 'unknown', 'confidence': 0.0, 'raw_scores': [0.0, 0.0, 0.0]}
     
     def _predict_ml(self, pose_landmarks):
         """Use ML model for prediction."""
@@ -316,9 +334,17 @@ class PostureClassifier:
     
     def predict_from_face_mesh(self, face_landmarks, frame_width=640, frame_height=480):
         """
-        Predict posture from face mesh (fallback when pose not available).
+        Когда плечи не видны (pose landmarks недоступны) — возвращаем 'unknown',
+        чтобы не генерировать ложные тревоги осанки.
+        Полноценная оценка возможна только при видимых плечах.
+        """
+        return {'status': 'unknown', 'confidence': 0.0}
+
+    def _predict_from_face_mesh_impl(self, face_landmarks, frame_width=640, frame_height=480):
+        """
+        (Отключён) Predict posture from face mesh (fallback when pose not available).
         Uses face position and orientation as proxy for posture.
-        
+
         Args:
             face_landmarks: MediaPipe face landmarks
             frame_width, frame_height: frame dimensions

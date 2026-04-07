@@ -1,11 +1,15 @@
 # NeuroFocus - Requirements
 # Установка: pip install -r requirements.txt
 # Проверено: работает с Python 3.11
+#
+# ВАЖНО: tensorflow==2.21.0 несовместим с mediapipe из-за конфликта protobuf.
+# Используйте tensorflow==2.15.1 + mediapipe==0.10.20 + protobuf>=4.25.3,<5.0
+# + ml-dtypes>=0.4.0
 
 # Компьютерное зрение
 opencv-python==4.13.0.92
 opencv-contrib-python==4.13.0.92
-mediapipe==0.10.32
+mediapipe==0.10.20
 
 # Вычисления и данные
 numpy==2.4.3
@@ -15,10 +19,12 @@ sqlalchemy==2.0.40
 # GUI
 PyQt6==6.10.2
 
-# Машинное обучение
-tensorflow==2.21.0
+# Машинное обучение (совместимые версии)
+tensorflow==2.15.1
 tensorflow-hub==0.16.1
 scikit-learn==1.8.0
+protobuf>=4.25.3,<5.0
+ml-dtypes>=0.4.0
 
 # Визуализация
 matplotlib==3.10.8

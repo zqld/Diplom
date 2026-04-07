@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton,
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from src.notifications import DEFAULT_SETTINGS
+from gui_calibration import CalibrationDialog
 
 
 DARK_COLORS = {
@@ -195,7 +196,7 @@ class SettingsWindow(QDialog):
         )
         content_layout.addWidget(self.sens_slider)
 
-        sens_hint = QLabel("Чем меньше значение, тем меньше движений рукой")
+        sens_hint = QLabel("Чем выше значение, тем меньше движений рукой нужно")
         sens_hint.setFont(QFont("Segoe UI", 11))
         sens_hint.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
         content_layout.addWidget(sens_hint)
@@ -214,70 +215,62 @@ class SettingsWindow(QDialog):
         self.auto_check.setChecked(self.calibration.auto_calibrate if self.calibration else False)
         content_layout.addWidget(self.auto_check)
 
-        face_row = QHBoxLayout()
-        face_row.setSpacing(16)
-        face_label = QLabel("Калибровка лица")
-        face_label.setFont(QFont("Segoe UI", 13))
-        face_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']};")
-        face_row.addWidget(face_label)
-        face_row.addStretch()
-        
-        self.face_status = QLabel("Не выполнена" if not (self.calibration and self.calibration.face_calibration["calibrated"]) else "Выполнена ✓")
-        self.face_status.setFont(QFont("Segoe UI", 12))
-        if self.calibration and self.calibration.face_calibration["calibrated"]:
-            self.face_status.setStyleSheet(f"color: {DARK_COLORS['good']}; font-weight: 600;")
-        else:
-            self.face_status.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
-        face_row.addWidget(self.face_status)
-        
-        self.btn_face = QPushButton("Начать")
-        self.btn_face.setFixedSize(90, 38)
-        self.btn_face.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_face.setStyleSheet(f"""
-            QPushButton {{
+        # ── Блок статусов калибровки ─────────────────────────────────────────
+        calib_frame = QFrame()
+        calib_frame.setStyleSheet(f"""
+            QFrame {{
                 background-color: {DARK_COLORS['bg_input']};
-                color: {DARK_COLORS['accent']};
-                border: 1px solid {DARK_COLORS['accent']};
-                border-radius: 8px;
-                padding: 6px 16px;
-                font-size: 13px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: {DARK_COLORS['accent']};
-                color: #FFFFFF;
+                border-radius: 10px;
+                border: 1px solid {DARK_COLORS['border']};
             }}
         """)
-        self.btn_face.clicked.connect(self.start_face_calibration)
-        face_row.addWidget(self.btn_face)
-        content_layout.addLayout(face_row)
+        calib_frame_layout = QVBoxLayout(calib_frame)
+        calib_frame_layout.setContentsMargins(16, 12, 16, 12)
+        calib_frame_layout.setSpacing(8)
 
-        hand_row = QHBoxLayout()
-        hand_row.setSpacing(16)
-        hand_label = QLabel("Калибровка руки")
-        hand_label.setFont(QFont("Segoe UI", 13))
-        hand_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']};")
-        hand_row.addWidget(hand_label)
-        hand_row.addStretch()
-        
-        self.hand_status = QLabel("Не выполнена" if not (self.calibration and self.calibration.hand_calibration["calibrated"]) else "Выполнена ✓")
-        self.hand_status.setFont(QFont("Segoe UI", 12))
-        if self.calibration and self.calibration.hand_calibration["calibrated"]:
-            self.hand_status.setStyleSheet(f"color: {DARK_COLORS['good']}; font-weight: 600;")
-        else:
-            self.hand_status.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
-        hand_row.addWidget(self.hand_status)
-        
-        self.btn_hand = QPushButton("Начать")
-        self.btn_hand.setFixedSize(90, 38)
-        self.btn_hand.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_hand.setStyleSheet(f"""
+        def _make_status_row(label_text, calibrated: bool):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            lbl = QLabel(label_text)
+            lbl.setFont(QFont("Segoe UI", 12))
+            lbl.setStyleSheet(f"color: {DARK_COLORS['text_secondary']}; background: transparent; border: none;")
+            row.addWidget(lbl)
+            row.addStretch()
+            status = QLabel("Выполнена ✓" if calibrated else "—")
+            status.setFont(QFont("Segoe UI", 12))
+            if calibrated:
+                status.setStyleSheet(f"color: {DARK_COLORS['good']}; font-weight: 600; background: transparent; border: none;")
+            else:
+                status.setStyleSheet(f"color: {DARK_COLORS['text_muted']}; background: transparent; border: none;")
+            row.addWidget(status)
+            return row, status
+
+        cm = self.calibration
+        row_face, self.face_status = _make_status_row(
+            "😐  Лицо", cm.face_calibration.get("calibrated", False) if cm else False)
+        row_posture, self.posture_cal_status = _make_status_row(
+            "🧍  Осанка", cm.posture_calibration.get("calibrated", False) if cm else False)
+        row_hand, self.hand_status = _make_status_row(
+            "✋  Рука", cm.hand_calibration.get("calibrated", False) if cm else False)
+        row_zone, self.zone_cal_status = _make_status_row(
+            "📐  Зона управления", cm.gesture_zone.get("calibrated", False) if cm else False)
+
+        calib_frame_layout.addLayout(row_face)
+        calib_frame_layout.addLayout(row_posture)
+        calib_frame_layout.addLayout(row_hand)
+        calib_frame_layout.addLayout(row_zone)
+        content_layout.addWidget(calib_frame)
+
+        # ── Единственная кнопка запуска ──────────────────────────────────────
+        btn_start_calib = QPushButton("🎯  Пройти калибровку")
+        btn_start_calib.setFixedHeight(42)
+        btn_start_calib.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_start_calib.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['bg_input']};
                 color: {DARK_COLORS['accent']};
                 border: 1px solid {DARK_COLORS['accent']};
-                border-radius: 8px;
-                padding: 6px 16px;
+                border-radius: 10px;
                 font-size: 13px;
                 font-weight: 600;
             }}
@@ -286,9 +279,8 @@ class SettingsWindow(QDialog):
                 color: #FFFFFF;
             }}
         """)
-        self.btn_hand.clicked.connect(self.start_hand_calibration)
-        hand_row.addWidget(self.btn_hand)
-        content_layout.addLayout(hand_row)
+        btn_start_calib.clicked.connect(self.start_calibration)
+        content_layout.addWidget(btn_start_calib)
 
         separator2 = QFrame()
         separator2.setFixedHeight(1)
@@ -385,17 +377,11 @@ class SettingsWindow(QDialog):
 
         main_layout.addLayout(btn_layout)
 
-    def start_face_calibration(self):
-        self.face_status.setText("Сбор данных...")
-        self.face_status.setStyleSheet(f"color: {DARK_COLORS['warning']}; font-weight: 600;")
-        if self.calibration:
-            self.calibration.start_face_calibration()
-
-    def start_hand_calibration(self):
-        self.hand_status.setText("Сбор данных...")
-        self.hand_status.setStyleSheet(f"color: {DARK_COLORS['warning']}; font-weight: 600;")
-        if self.calibration:
-            self.calibration.start_hand_calibration()
+    def start_calibration(self):
+        """Открыть полный диалог калибровки (все 4 шага, каждый можно пропустить)."""
+        dlg = CalibrationDialog(self.calibration, parent=self)
+        dlg.exec()
+        self.update_calibration_status()
 
     def save_settings(self):
         sensitivity = self.sens_slider.value() / 100.0
@@ -404,13 +390,7 @@ class SettingsWindow(QDialog):
             self.calibration.set_sensitivity(sensitivity)
             self.calibration.set_auto_calibrate(self.auto_check.isChecked())
             
-            if self.calibration.face_calibration["calibrated"]:
-                self.face_status.setText("Выполнена ✓")
-                self.face_status.setStyleSheet(f"color: {DARK_COLORS['good']}; font-weight: 600;")
-            
-            if self.calibration.hand_calibration["calibrated"]:
-                self.hand_status.setText("Выполнена ✓")
-                self.hand_status.setStyleSheet(f"color: {DARK_COLORS['good']}; font-weight: 600;")
+            self.update_calibration_status()
         
         self.result_settings = {
             "work_limit_minutes": self.stepper_work.value(),
@@ -424,3 +404,27 @@ class SettingsWindow(QDialog):
 
     def get_settings(self):
         return self.result_settings
+    
+    def update_calibration_status(self):
+        """Обновить статусные метки калибровки по текущему состоянию менеджера."""
+        if not self.calibration:
+            return
+
+        def _set(lbl, calibrated: bool):
+            if calibrated:
+                lbl.setText("Выполнена ✓")
+                lbl.setStyleSheet(
+                    f"color: {DARK_COLORS['good']}; font-weight: 600; background: transparent; border: none;")
+            else:
+                lbl.setText("—")
+                lbl.setStyleSheet(
+                    f"color: {DARK_COLORS['text_muted']}; background: transparent; border: none;")
+
+        if hasattr(self, 'face_status'):
+            _set(self.face_status, self.calibration.face_calibration.get("calibrated", False))
+        if hasattr(self, 'hand_status'):
+            _set(self.hand_status, self.calibration.hand_calibration.get("calibrated", False))
+        if hasattr(self, 'posture_cal_status'):
+            _set(self.posture_cal_status, self.calibration.posture_calibration.get("calibrated", False))
+        if hasattr(self, 'zone_cal_status'):
+            _set(self.zone_cal_status, self.calibration.gesture_zone.get("calibrated", False))

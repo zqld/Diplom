@@ -20,7 +20,7 @@ class GestureHelpWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Управление жестами")
-        self.setFixedSize(520, 480)
+        self.setFixedSize(520, 620)
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{
@@ -52,10 +52,11 @@ class GestureHelpWindow(QDialog):
         gestures_layout.setSpacing(14)
         
         gestures = [
-            ("☝️", "Указательный палец", "Движение курсором"),
-            ("🤏", "Пинч (большой + указательный)", "Левый клик"),
-            ("✌️", "Указательный + средний", "Правый клик"),
-            ("✊", "Кулак (все пальцы вниз)", "Перетаскивание (drag)"),
+            ("☝️", "Только указательный палец", "Движение курсором"),
+            ("✊", "Кулак (все пальцы сжаты)", "Левый клик"),
+            ("🤙", "Указательный + мизинец", "Правый клик"),
+            ("🤟", "3 пальца: указ. + сред. + безым.", "Прокрутка вверх ↑"),
+            ("🖖", "4 пальца: указ. + сред. + безым. + мизинец", "Прокрутка вниз ↓"),
         ]
         
         for icon, gesture, action in gestures:
@@ -126,11 +127,37 @@ class GestureHelpWindow(QDialog):
         
         layout.addWidget(shortcuts_frame)
         
-        tip_label = QLabel("💡 Для стабильной работы держите руку на расстоянии 30-60 см от камеры")
-        tip_label.setFont(QFont("Segoe UI", 11))
-        tip_label.setStyleSheet(f"color: {DARK_COLORS['text_muted']}; padding: 8px; background-color: {DARK_COLORS['bg_input']}; border-radius: 8px;")
-        tip_label.setWordWrap(True)
-        layout.addWidget(tip_label)
+        tips_frame = QFrame()
+        tips_frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {DARK_COLORS['bg_input']};
+                border-radius: 10px;
+                border: none;
+            }}
+        """)
+        tips_layout = QVBoxLayout(tips_frame)
+        tips_layout.setContentsMargins(14, 12, 14, 12)
+        tips_layout.setSpacing(6)
+
+        tips_title = QLabel("💡  Советы")
+        tips_title.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
+        tips_title.setStyleSheet(f"color: {DARK_COLORS['accent']}; background: transparent;")
+        tips_layout.addWidget(tips_title)
+
+        tips = [
+            "Держите руку на расстоянии 30–60 см от камеры",
+            "Для прокрутки: три пальца вверх → листает вверх, вниз → вниз",
+            "Чем выше чувствительность — тем меньше движений нужно",
+            "Нажмите G для быстрого вкл/выкл управления мышью",
+        ]
+        for tip in tips:
+            lbl = QLabel(f"• {tip}")
+            lbl.setFont(QFont("Segoe UI", 11))
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(f"color: {DARK_COLORS['text_muted']}; background: transparent;")
+            tips_layout.addWidget(lbl)
+
+        layout.addWidget(tips_frame)
         
         btn_close = QPushButton("Закрыть")
         btn_close.setFixedHeight(46)

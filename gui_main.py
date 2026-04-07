@@ -11,15 +11,8 @@ from PyQt6.QtGui import QShortcut, QImage, QPixmap, QFont, QColor, QIcon
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from src.notifications import NotificationManager, ToastNotification
 from gui_settings import SettingsWindow
-from src.emotion_detector import EmotionDetector
-from src.face_core import FaceMeshDetector
-from src.geometry import calculate_ear, calculate_mar
-from src.pose_estimator import HeadPoseEstimator
+from gui_calibration import CalibrationDialog
 from src.database import DatabaseManager
-from src.fatigue_analyzer import FatigueAnalyzer
-from src.posture_analyzer import PostureAnalyzer
-from src.hand_tracker import HandTracker
-from src.gesture_controller import GestureController
 from src.calibration_manager import CalibrationManager
 from src.sound_manager import sound_manager
 from src.logger import logger
@@ -235,6 +228,8 @@ class VideoThread(QThread):
     def __init__(self):
         super().__init__()
         self._run_flag = True
+        self._paused = False          # True = анализ заморожен, камера работает
+        self._force_close = False
         self._initialized = False
         self._init_processors()
         
@@ -251,23 +246,62 @@ class VideoThread(QThread):
     def _init_processors(self):
         try:
             from src.processors import FaceProcessor, EmotionProcessor, FatigueProcessor, PostureProcessor, HandProcessor
-            
+
             self.face_processor = FaceProcessor()
             self.emotion_processor = EmotionProcessor()
+            # Keep old processors as fallback
             self.fatigue_processor = FatigueProcessor()
             self.posture_processor = PostureProcessor()
             self.hand_processor = None
-            
+
             self.face_detector = self.face_processor.detector
             self.db = DatabaseManager("session_data.db")
-            
+
             self.calibration_manager = None
-            
+
             self.last_save_time = time.time()
             self.frame_counter = 0
-            
+
+            # --- Performance tuning ---
+            # Тяжёлые ML-модели (LSTM, Dense posture) — каждые 8 кадров (~4 Hz)
+            self._ml_update_interval   = 8
+            # Рука/жесты — каждый кадр (30 Hz).
+            # model_complexity=0 даёт ~5 ms/frame — укладываемся в бюджет 33 ms.
+            # Interval=1 устраняет мигание landmarks (при 2 они пропадали через кадр).
+            self._hand_update_interval = 1
+            self._last_data = {}  # кэш аналитики для кадров без ML
+            self._last_hand_data: dict = {}  # кэш для кадров без hand update
+
+            # --- ML Classifiers (neurofocus) ---
+            self._ml_ready = False
+            try:
+                import os
+                os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+                from neurofocus.ml.fatigue_classifier import FatigueClassifier
+                from neurofocus.ml.posture_classifier import PostureClassifier
+                from neurofocus.detectors.pose_detector import PoseDetector
+
+                self.fatigue_classifier = FatigueClassifier()  # loads LSTM from models/fatigue_lstm.keras
+                self.posture_classifier = PostureClassifier(
+                    model_path='models/posture_model.keras'
+                )
+                # Принудительно используем геометрический метод — keras-модель
+                # обучена на неизвестных данных и даёт ненадёжные результаты.
+                # Геометрика по плечам/голове работает предсказуемо.
+                self.posture_classifier._use_fallback = True
+                self.pose_detector = PoseDetector(
+                    model_path='models/pose_landmarker_lite.task'
+                )
+                self._ml_ready = True
+                logger.info("ML классификаторы (LSTM усталость + Dense осанка) загружены")
+            except Exception as ml_err:
+                logger.warning(f"ML классификаторы недоступны, используются пороговые значения: {ml_err}")
+                self.fatigue_classifier = None
+                self.posture_classifier = None
+                self.pose_detector = None
+
             self._initialized = True
-            
+
         except Exception as e:
             logger.error(f"Ошибка инициализации процессоров: {e}")
             self._initialized = False
@@ -279,52 +313,26 @@ class VideoThread(QThread):
             self.hand_processor = HandProcessor(calibration_manager=calibration_manager)
         except Exception as e:
             logger.error(f"Ошибка инициализации HandProcessor: {e}")
+        # Передаём calibration_manager в PostureProcessor для персонального pitch
+        try:
+            if hasattr(self, 'posture_processor') and self.posture_processor:
+                self.posture_processor.set_calibration_manager(calibration_manager)
+        except Exception as e:
+            logger.error(f"Ошибка передачи calibration_manager в PostureProcessor: {e}")
     
     def _get_calibration_overlay(self, frame):
         if not self.calibration_manager:
             return None
         
-        h, w = frame.shape[:2]
-        
         try:
             if self.calibration_manager._is_calibrating_face:
                 progress = len(self.calibration_manager._face_samples)
                 pct = int(progress / 20 * 100)
-                
-                bar_width = 300
-                bar_height = 30
-                bar_x = (w - bar_width) // 2
-                bar_y = h - 80
-                
-                cv2.rectangle(frame, (bar_x - 2, bar_y - 2), (bar_x + bar_width + 2, bar_y + bar_height + 2), (50, 50, 50), -1)
-                cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (80, 80, 80), -1)
-                cv2.rectangle(frame, (bar_x, bar_y), (bar_x + int(bar_width * pct / 100), bar_y + bar_height), (100, 200, 100), -1)
-                
-                cv2.putText(frame, f"Калибровка лица: {pct}%", (bar_x, bar_y - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 200, 100), 2)
-                cv2.putText(frame, "Смотрите в камеру и не двигайтесь", (bar_x, bar_y + bar_height + 25), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-                
                 return {"type": "face", "progress": progress, "pct": pct}
-            
+
             if self.calibration_manager._is_calibrating_hand:
                 progress = len(self.calibration_manager._hand_samples)
                 pct = int(progress / 20 * 100)
-                
-                bar_width = 300
-                bar_height = 30
-                bar_x = (w - bar_width) // 2
-                bar_y = h - 80
-                
-                cv2.rectangle(frame, (bar_x - 2, bar_y - 2), (bar_x + bar_width + 2, bar_y + bar_height + 2), (50, 50, 50), -1)
-                cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (80, 80, 80), -1)
-                cv2.rectangle(frame, (bar_x, bar_y), (bar_x + int(bar_width * pct / 100), bar_y + bar_height), (100, 150, 220), -1)
-                
-                cv2.putText(frame, f"Калибровка руки: {pct}%", (bar_x, bar_y - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (100, 150, 220), 2)
-                cv2.putText(frame, "Покажите руку на экране", (bar_x, bar_y + bar_height + 25), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-                
                 return {"type": "hand", "progress": progress, "pct": pct}
         except Exception as e:
             logger.error(f"Ошибка отрисовки калибровки: {e}")
@@ -338,20 +346,39 @@ class VideoThread(QThread):
         
         cap = None
         try:
-            cap = cv2.VideoCapture(0)
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             if not cap.isOpened():
                 logger.error("VideoThread: не удалось открыть камеру")
                 self.error_signal.emit("Не удалось открыть камеру")
                 return
             
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            
-            logger.info("VideoThread: камера запущена")
+            # 1280×720 даёт MediaPipe ~2× больше пикселей на руку/лицо →
+            # детекция надёжнее. Большинство веб-камер поддерживают 720p @ 30 fps.
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            cap.set(cv2.CAP_PROP_FPS, 30)       # 30 fps стабильнее 60 на 720p
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) # всегда берём самый свежий кадр
+
+            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            logger.info(f"VideoThread: камера запущена {actual_w}x{actual_h} @ {actual_fps:.0f} FPS")
         except Exception as e:
             logger.error(f"VideoThread: ошибка инициализации камеры: {e}")
             self.error_signal.emit(f"Ошибка камеры: {e}")
             return
+
+        # --- Default data for frames before first ML run ---
+        default_data = {
+            "ear": 0.35, "mar": 0.0, "pitch": 0.0, "emotion": "...",
+            "event": None, "posture_alert": False,
+            "posture_score": 0, "posture_level": "good",
+            "face_detected": False, "hand_detected": False,
+            "fatigue_status": "Awake", "fatigue_score": 0,
+            "blink_rate": 0, "yawning": False, "microsleep_detected": False,
+            "model_used": "geometric", "posture_status": "Good",
+        }
+        self._last_data = dict(default_data)
 
         while self._run_flag:
             frame = None
@@ -363,14 +390,15 @@ class VideoThread(QThread):
                         logger.error("VideoThread: слишком много ошибок чтения камеры")
                         break
                     continue
-                
+
                 self._error_count = 0
                 frame = cv2.flip(frame, 1)
-                
+
             except Exception as e:
                 logger.error(f"VideoThread: ошибка чтения камеры: {e}")
                 continue
 
+            # ---- LIGHT PATH (every frame): face detect → render ----
             try:
                 image, results = self.face_detector.process_frame(frame, draw=True)
             except Exception as e:
@@ -378,100 +406,83 @@ class VideoThread(QThread):
                 image = frame
                 results = None
 
-            data = {
-                "ear": 0.35, "mar": 0.0,
-                "pitch": 0.0, "emotion": "...",
-                "event": None,
-                "posture_alert": False,
-                "posture_score": 0,
-                "posture_level": "good",
-                "face_detected": False,
-                "hand_detected": False
-            }
-
-            current_time = time.time()
-            ear = 0.35
-            mar = 0.15
-            pitch = 0.0
+            face_data = None
             is_face_valid = False
-
             try:
                 face_data = self.face_processor.process(frame, results)
                 is_face_valid = face_data['valid']
-                data["face_detected"] = face_data['detected']
-                
-                if is_face_valid:
-                    ear = face_data['ear']
-                    mar = face_data['mar']
-                    pitch = face_data['pitch']
-                    data["ear"] = ear
-                    data["mar"] = mar
-                    data["pitch"] = pitch
-                    
-                    emotion = self.emotion_processor.process(frame, face_data['landmarks'])
-                    data["emotion"] = emotion
-                    
-                    fatigue_data = self.fatigue_processor.process(ear, mar, pitch, emotion, current_time)
-                    data.update(fatigue_data)
-                    
-                    posture_data = self.posture_processor.process(
-                        face_data['landmarks'],
-                        frame.shape[1],
-                        frame.shape[0],
-                        pitch,
-                        current_time
-                    )
-                    data.update(posture_data)
-                    
-                    if posture_data.get('event'):
-                        data["event"] = posture_data['event']
-                    if posture_data.get('posture_alert'):
-                        data["posture_alert"] = True
-                    
-                    if time.time() - self.last_save_time > 1.0:
-                        self.db.save_log(
-                            ear=ear,
-                            mar=mar,
-                            pitch=pitch,
-                            emotion=emotion,
-                            fatigue_status=fatigue_data.get('fatigue_status', 'Normal'),
-                            posture_status=posture_data.get('posture_status', 'Good')
-                        )
-                        self.last_save_time = time.time()
-                        
             except Exception as e:
-                logger.error(f"VideoThread: ошибка обработки лица: {e}")
+                logger.error(f"VideoThread: ошибка face_processor: {e}")
 
-            try:
-                if self.hand_processor:
-                    hand_data = self.hand_processor.process(image, frame.shape[1], frame.shape[0])
-                    data["hand_detected"] = hand_data['detected']
-                    data["current_gesture"] = hand_data.get('current_gesture', 'none')
-                    
-                    if hand_data.get('gesture') and hand_data['gesture'] != 'none':
-                        cv2.rectangle(image, (5, 5), (200, 35), (0, 0, 0), -1)
-                        cv2.putText(image, f"[{hand_data['gesture'].upper()}]", (10, 28), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            except Exception as e:
-                logger.error(f"VideoThread: ошибка обработки руки: {e}")
+            # Determine if this frame should run heavy ML
+            do_ml = (self.frame_counter % self._ml_update_interval == 0)
 
+            if do_ml:
+                data = self._run_heavy_ml(
+                    frame, image, face_data, is_face_valid, default_data
+                )
+            else:
+                # Reuse cached analytics from last full run
+                data = dict(self._last_data)
+                if face_data and is_face_valid:
+                    data["ear"] = face_data.get("ear", self._last_data.get("ear", 0.35))
+                    data["mar"] = face_data.get("mar", self._last_data.get("mar", 0.0))
+                    data["pitch"] = face_data.get("pitch", self._last_data.get("pitch", 0.0))
+                    data["face_detected"] = face_data.get("detected", False)
+
+            # ---- Calibration (every frame, lightweight) ----
             try:
                 if self.calibration_manager and is_face_valid:
-                    ear_val = ear if is_face_valid else 0.3
-                    mar_val = mar if is_face_valid else 0.15
-                    pitch_val = pitch if is_face_valid else 0.0
-                    
-                    self.calibration_manager.auto_calibrate_if_needed(ear_val, mar_val, pitch_val, 0.25)
-                    
+                    ear_val   = face_data.get("ear",   0.3)
+                    mar_val   = face_data.get("mar",   0.15)
+                    pitch_val = face_data.get("pitch", 0.0)
+
+                    # Используем реальный размер руки если он уже был измерен
+                    hand_size_val = (
+                        getattr(self.hand_processor, '_hand_size', None)
+                        if self.hand_processor else None
+                    )
+
+                    # Авто-калибровка: не мешает ручной, возвращает (face_done, hand_done)
+                    was_face_calib = self.calibration_manager.face_calibration["calibrated"]
+                    was_hand_calib = self.calibration_manager.hand_calibration["calibrated"]
+                    face_done, hand_done = self.calibration_manager.auto_calibrate_if_needed(
+                        ear_val, mar_val, pitch_val, hand_size_val
+                    )
+
+                    # Сигнал о прогрессе авто-калибровки лица
+                    if not was_face_calib and not self.calibration_manager._is_calibrating_face:
+                        auto_progress = len(self.calibration_manager._face_samples)
+                        if auto_progress > 0:
+                            self.calibration_progress_signal.emit("face_auto", auto_progress)
+                    if face_done:
+                        self.calibration_done_signal.emit("face")
+                        logger.info("Авто-калибровка лица завершена")
+                    if hand_done:
+                        self.calibration_done_signal.emit("hand")
+                        logger.info("Авто-калибровка руки завершена")
+
+                    # Ручная калибровка лица
                     if self.calibration_manager._is_calibrating_face:
                         self.calibration_manager.add_face_sample(ear_val, mar_val, pitch_val)
                         progress = len(self.calibration_manager._face_samples)
                         self.calibration_progress_signal.emit("face", progress)
-                        
+
                         if progress >= 20:
                             self.calibration_manager.finish_face_calibration()
                             self.calibration_done_signal.emit("face")
                             logger.info("Калибровка лица завершена")
+
+                    # Ручная калибровка осанки
+                    if self.calibration_manager._is_calibrating_posture:
+                        self.calibration_manager.add_posture_sample(pitch_val)
+                        progress = len(self.calibration_manager._posture_samples)
+                        self.calibration_progress_signal.emit("posture", progress)
+
+                        if progress >= 20:
+                            self.calibration_manager.finish_posture_calibration()
+                            self.calibration_done_signal.emit("posture")
+                            logger.info("Калибровка осанки завершена")
             except Exception as e:
                 logger.error(f"VideoThread: ошибка калибровки лица: {e}")
 
@@ -479,7 +490,7 @@ class VideoThread(QThread):
                 calib = self.calibration_manager.face_calibration["calibrated"] if self.calibration_manager else False
                 if calib != self._last_calibration_status["face"]:
                     self._last_calibration_status["face"] = calib
-            except Exception as e:
+            except Exception:
                 pass
 
             try:
@@ -488,6 +499,75 @@ class VideoThread(QThread):
                     data["calibration_info"] = calib_info
             except Exception as e:
                 logger.error(f"VideoThread: ошибка отрисовки калибровки: {e}")
+
+            # ---- Hand / Gesture — каждые _hand_update_interval кадров ----
+            # Вынесено из _run_heavy_ml: жесты должны обновляться ~15 Hz,
+            # а не 4 Hz как тяжёлые ML-модели. Иначе курсор «скачет».
+            do_hand = (self.frame_counter % self._hand_update_interval == 0)
+            try:
+                if self.hand_processor and do_hand:
+                    hand_data = self.hand_processor.process(
+                        image, frame.shape[1], frame.shape[0]
+                    )
+                    self._last_hand_data = hand_data
+
+                    data["hand_detected"]   = hand_data['detected']
+                    data["current_gesture"] = hand_data.get('current_gesture', 'none')
+
+                    # Наложение жеста на кадр
+                    gesture_label = hand_data.get('gesture', 'none')
+                    if gesture_label and gesture_label != 'none':
+                        cv2.rectangle(image, (5, 5), (200, 35), (0, 0, 0), -1)
+                        cv2.putText(image, f"[{gesture_label.upper()}]", (10, 28),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+                    # Сбор сэмплов для ручной калибровки руки
+                    if (self.calibration_manager
+                            and self.calibration_manager._is_calibrating_hand
+                            and hand_data.get('hand_size')):
+                        self.calibration_manager.add_hand_sample(hand_data['hand_size'])
+                        progress = len(self.calibration_manager._hand_samples)
+                        self.calibration_progress_signal.emit("hand", progress)
+                        if progress >= 20:
+                            self.calibration_manager.finish_hand_calibration()
+                            self.calibration_done_signal.emit("hand")
+                            logger.info("Калибровка руки завершена")
+
+                    # Сбор сэмплов для калибровки активной зоны жестов
+                    if (self.calibration_manager
+                            and self.calibration_manager._is_calibrating_zone
+                            and hand_data.get('palm_x') is not None):
+                        px = hand_data['palm_x']
+                        py = hand_data['palm_y']
+                        cm = self.calibration_manager
+                        cm.add_zone_sample(px, py)
+                        step = cm._zone_step
+                        if step == 'topleft':
+                            progress = len(cm._zone_topleft_samples)
+                            self.calibration_progress_signal.emit("zone_topleft", progress)
+                        elif step == 'bottomright':
+                            progress = len(cm._zone_bottomright_samples)
+                            self.calibration_progress_signal.emit("zone_bottomright", progress)
+                            if progress >= 15:
+                                cm.finish_gesture_zone_calibration()
+                                self.calibration_done_signal.emit("zone")
+                                logger.info("Калибровка зоны жестов завершена")
+                                # После смены зоны сбрасываем позицию жестового контроллера,
+                                # чтобы outlier-фильтр не заморозил курсор
+                                if (self.hand_processor
+                                        and self.hand_processor.gesture_controller):
+                                    gc = self.hand_processor.gesture_controller
+                                    gc.prev_x = gc.screen_width  // 2
+                                    gc.prev_y = gc.screen_height // 2
+                                    gc._outlier_consecutive = 0
+                                    gc._gesture_buf.clear()
+
+                elif self.hand_processor and self._last_hand_data:
+                    # Кадр без hand update — используем кэш для UI, жест не двигает мышь
+                    data["hand_detected"]   = self._last_hand_data.get('detected', False)
+                    data["current_gesture"] = self._last_hand_data.get('current_gesture', 'none')
+            except Exception as e:
+                logger.error(f"VideoThread: ошибка обработки руки: {e}")
 
             try:
                 h, w, ch = image.shape
@@ -500,7 +580,7 @@ class VideoThread(QThread):
                 self.update_data_signal.emit(data)
 
                 self.frame_counter += 1
-                
+
             except Exception as e:
                 logger.error(f"VideoThread: ошибка отправки изображения: {e}")
 
@@ -509,8 +589,145 @@ class VideoThread(QThread):
                 cap.release()
             except Exception:
                 pass
-        
+
         logger.info("VideoThread: завершен")
+
+    def toggle_pause(self):
+        """Переключить паузу анализа."""
+        self._paused = not self._paused
+        return self._paused
+
+    def _run_heavy_ml(self, frame, image, face_data, is_face_valid, default_data):
+        """Run heavy ML models (LSTM, pose, posture, emotion) — called every N frames."""
+        # Если анализ на паузе — возвращаем кешированные данные
+        if self._paused:
+            cached = dict(self._last_data)
+            cached['analysis_paused'] = True
+            return cached
+        data = dict(default_data)
+        current_time = time.time()
+        ear = 0.35
+        mar = 0.15
+        pitch = 0.0
+        emotion = "..."
+        pose_landmarks = None
+
+        if not is_face_valid or face_data is None:
+            return data
+
+        ear = face_data.get('ear', 0.35)
+        mar = face_data.get('mar', 0.15)
+        pitch = face_data.get('pitch', 0.0)
+        data["ear"] = ear
+        data["mar"] = mar
+        data["pitch"] = pitch
+        data["face_detected"] = face_data.get('detected', False)
+
+        # --- Emotion ---
+        try:
+            emotion = self.emotion_processor.process(frame, face_data['landmarks'])
+        except Exception:
+            pass
+        data["emotion"] = emotion
+
+        # --- Fatigue: ML (LSTM) or threshold fallback ---
+        fatigue_data = {}
+        if self._ml_ready and self.fatigue_classifier is not None:
+            try:
+                ml_fatigue = self.fatigue_classifier.predict(face_data['landmarks'], frame)
+                fatigue_data = {
+                    'fatigue_status': ml_fatigue.get('status', 'awake').capitalize(),
+                    'fatigue_score': ml_fatigue.get('fatigue_score', 0),
+                    'blink_rate': ml_fatigue.get('blink_rate', 0),
+                    'ear': ear,
+                    'mar': mar,
+                    'yawning': ml_fatigue.get('yawning', False),
+                    'microsleep_detected': ml_fatigue.get('microsleep_detected', False),
+                    'model_used': ml_fatigue.get('model_used', 'geometric'),
+                }
+            except Exception as ml_e:
+                logger.warning(f"ML fatigue error, fallback: {ml_e}")
+                fatigue_data = self.fatigue_processor.process(ear, mar, pitch, emotion, current_time)
+        else:
+            fatigue_data = self.fatigue_processor.process(ear, mar, pitch, emotion, current_time)
+        data.update(fatigue_data)
+
+        # --- Posture: ML (Dense) with Pose or face-mesh fallback ---
+        posture_data = {}
+        if self._ml_ready and self.posture_classifier is not None and self.pose_detector is not None:
+            try:
+                _, pose_results = self.pose_detector.process_frame(frame, draw=False)
+                pose_landmarks = self.pose_detector.get_landmarks(pose_results)
+                if pose_landmarks is not None and len(pose_landmarks) >= 25:
+                    ml_posture = self.posture_classifier.predict(pose_landmarks)
+                    posture_data = {
+                        'posture_status': ml_posture.get('status', 'good').capitalize(),
+                        'posture_score': int(ml_posture.get('confidence', 0) * 100),
+                        'posture_level': ml_posture.get('status', 'good'),
+                        'posture_alert': ml_posture.get('status') == 'bad',
+                        'model_used_posture': 'ml_dense',
+                    }
+                else:
+                    pm = self.posture_classifier.predict_from_face_mesh(
+                        face_data['landmarks'], frame.shape[1], frame.shape[0]
+                    )
+                    posture_data = {
+                        'posture_status': pm.get('status', 'good').capitalize(),
+                        'posture_score': int(pm.get('confidence', 0) * 100),
+                        'posture_level': pm.get('status', 'good'),
+                        'posture_alert': pm.get('status') == 'bad',
+                        'model_used_posture': 'face_mesh_geometric',
+                    }
+            except Exception as ml_pe:
+                logger.warning(f"ML posture error, fallback: {ml_pe}")
+                posture_data = self.posture_processor.process(
+                    face_data['landmarks'], frame.shape[1], frame.shape[0], pitch, current_time
+                )
+        else:
+            posture_data = self.posture_processor.process(
+                face_data['landmarks'], frame.shape[1], frame.shape[0], pitch, current_time
+            )
+        data.update(posture_data)
+
+        # Нормализуем posture_alert: ML возвращает разные ключи и регистры.
+        # posture_processor (fallback) использует 'is_bad', ML-путь — 'posture_alert',
+        # а сравнение статуса должно быть case-insensitive.
+        _ps = posture_data.get('posture_status', '').lower()
+        _pl = posture_data.get('posture_level', '').lower()
+        data['posture_alert'] = bool(
+            posture_data.get('posture_alert', False)
+            or posture_data.get('is_bad', False)
+            or _ps in ('bad', 'bad posture')
+            or _pl == 'bad'
+        )
+
+        if posture_data.get('event'):
+            data["event"] = posture_data['event']
+
+
+        # --- DB save (every ~1s) ---
+        if time.time() - self.last_save_time > 1.0:
+            posture_raw = posture_data.get('posture_status', 'Good')
+            posture_db = 'Bad Posture' if posture_raw.lower() == 'bad' else posture_raw
+
+            fatigue_raw = fatigue_data.get('fatigue_status', 'Awake')
+            mar_val = fatigue_data.get('mar', 0)
+            if mar_val > 0.6:
+                fatigue_db = 'Yawning'
+            elif fatigue_raw.lower() == 'sleeping':
+                fatigue_db = 'Eyes Closed'
+            else:
+                fatigue_db = fatigue_raw
+
+            self.db.save_log(
+                ear=ear, mar=mar, pitch=pitch, emotion=emotion,
+                fatigue_status=fatigue_db, posture_status=posture_db
+            )
+            self.last_save_time = time.time()
+
+        # Cache the result for lightweight frames
+        self._last_data = data
+        return data
 
     def stop(self):
         self._run_flag = False
@@ -520,6 +737,7 @@ class VideoThread(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.force_close = False
         self.setWindowTitle("NeuroFocus")
         self.setGeometry(80, 80, 1280, 800)
         self.setStyleSheet(f"""
@@ -844,6 +1062,10 @@ class MainWindow(QMainWindow):
         self.btn_pomodoro.clicked.connect(self.open_pomodoro)
         button_layout.addWidget(self.btn_pomodoro)
         
+        self.btn_pause = ModernButton("⏸  Пауза анализа")
+        self.btn_pause.clicked.connect(self.toggle_analysis_pause)
+        button_layout.addWidget(self.btn_pause)
+
         self.btn_gesture = ModernButton("🖱️  Управление мышью")
         self.btn_gesture.clicked.connect(self.toggle_gesture)
         button_layout.addWidget(self.btn_gesture)
@@ -953,12 +1175,27 @@ class MainWindow(QMainWindow):
     
     def on_calibration_progress(self, calib_type, progress):
         pct = int(progress / 20 * 100)
-        if calib_type == "face":
+        # Звук — только один раз при первом сэмпле ручной калибровки
+        if calib_type == "face" and progress == 1:
             sound_manager.calibration_start()
-        self.add_log_event(f"Калибровка {calib_type}: {pct}%", DARK_COLORS['text_muted'])
-    
+        # face_auto — авто-калибровка лица, не дублируем лог каждый кадр
+        if calib_type == "face_auto":
+            if progress in (10, 20, 30):   # показываем только на 33% / 66% / 100%
+                self.add_log_event(f"Авто-калибровка лица: {int(progress/30*100)}%",
+                                   DARK_COLORS['text_muted'])
+        else:
+            self.add_log_event(f"Калибровка {calib_type}: {pct}%", DARK_COLORS['text_muted'])
+
     def on_calibration_done(self, calib_type):
-        self.add_log_event(f"Калибровка {calib_type} завершена ✓", DARK_COLORS['good'])
+        labels = {
+            "face":    "лица",
+            "hand":    "руки",
+            "posture": "осанки",
+            "zone":    "зоны управления",
+        }
+        label = labels.get(calib_type, calib_type)
+        self.add_log_event(f"Калибровка {label} завершена ✓", DARK_COLORS['good'])
+        self.show_notification("Калибровка", f"Калибровка {label} успешно завершена")
 
     def add_log_event(self, text, color="#6A6A7A"):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -1057,10 +1294,12 @@ class MainWindow(QMainWindow):
         current_event = data["event"]
         if current_event:
             now = time.time()
+            ev_lower = current_event.lower()
 
-            if "осанка" in current_event.lower():
+            _posture_keywords = ("осанка", "наклон", "отклонение", "голова", "поза")
+            if any(kw in ev_lower for kw in _posture_keywords):
                 tracking_key = "posture_any"
-                cooldown = COOLDOWN_POSTURE_EVENT
+                cooldown = 30.0   # не чаще раза в 30 сек
                 color = DARK_COLORS['danger']
             else:
                 tracking_key = current_event
@@ -1078,30 +1317,47 @@ class MainWindow(QMainWindow):
         stats_dialog.exec()
     
     def open_progress(self):
+        # Обновляем дневной прогресс перед открытием окна
+        try:
+            from src.progress_tracker import ProgressTracker
+            ProgressTracker().update_daily_progress()
+        except Exception:
+            pass
         from gui_progress import ProgressWindow
         progress_dialog = ProgressWindow(self)
         progress_dialog.exec()
     
     def open_pomodoro(self):
         from gui_pomodoro import PomodoroTimer
-        pomodoro_dialog = PomodoroTimer(self)
-        pomodoro_dialog.show()
+        # Переиспользуем существующий экземпляр — не создаём новый при каждом открытии,
+        # чтобы таймер не останавливался при закрытии окна
+        if not hasattr(self, '_pomodoro') or self._pomodoro is None:
+            self._pomodoro = PomodoroTimer(self)
+            # Подключаем сигнал завершения цикла к системе уведомлений
+            self._pomodoro.pomodoro_finished.connect(
+                lambda title, msg: self.show_notification(title, msg, accent='#4ADE80')
+            )
+        self._pomodoro.show()
+        self._pomodoro.raise_()
+        self._pomodoro.activateWindow()
 
     def close_app(self):
         logger.info("Завершение работы приложения...")
-        
+
+        self.force_close = True
+
         self.tray_icon.hide()
-        
+
         if hasattr(self, 'notify_timer'):
             self.notify_timer.stop()
-        
+
         if hasattr(self, 'session_timer'):
             self.session_timer.stop()
-        
+
         if hasattr(self, 'video_thread'):
             self.video_thread.stop()
             self.video_thread.wait(3000)
-        
+
         try:
             from src.progress_tracker import ProgressTracker
             tracker = ProgressTracker()
@@ -1109,24 +1365,92 @@ class MainWindow(QMainWindow):
             logger.info("Ежедневный прогресс обновлен")
         except Exception as e:
             logger.error(f"Ошибка обновления прогресса: {e}")
-        
+
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QCoreApplication
         logger.info("Приложение завершено")
-        self.close()
+        QApplication.quit()
     
     def closeEvent(self, event):
-        self.close_app()
-        event.accept()
+        if not self.force_close:
+            event.ignore()
+            self.hide()
+            self.tray_icon.showMessage(
+                "NeuroFocus",
+                "Мониторинг продолжается в фоне. Нажмите на иконку для возврата.",
+                QSystemTrayIcon.MessageIcon.Information,
+                2000
+            )
+        else:
+            event.accept()
+
+    def open_calibration(self):
+        """Открыть минималистичный диалог калибровки."""
+        dlg = CalibrationDialog(self.calibration_manager, parent=self)
+        dlg.exec()
+        # После закрытия — уведомление если хоть что-то откалибровано
+        cm = self.calibration_manager
+        if cm and (cm.face_calibration.get("calibrated") or cm.hand_calibration.get("calibrated")):
+            self.show_notification("Калибровка", "Параметры сохранены ✓")
 
     def open_settings(self):
         dialog = SettingsWindow(self.notify_manager.settings, self.calibration_manager)
         dialog.exec()
         if dialog.result_settings:
             self.notify_manager.update_settings(dialog.result_settings)
+            # Применяем чувствительность жестов к работающему контроллеру
+            sensitivity = dialog.result_settings.get('gesture_sensitivity', 1.0)
+            hp = getattr(self.video_thread, 'hand_processor', None)
+            if hp and hasattr(hp, 'gesture_controller') and hp.gesture_controller:
+                hp.gesture_controller.set_sensitivity(sensitivity)
             self.show_notification("Настройки", "Параметры обновлены")
     
+    def toggle_analysis_pause(self):
+        paused = self.video_thread.toggle_pause()
+        if paused:
+            self.btn_pause.setText("▶  Возобновить")
+            self.btn_pause.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {DARK_COLORS['warning_bg']};
+                    color: {DARK_COLORS['warning']};
+                    border: 1px solid {DARK_COLORS['warning']};
+                    border-radius: 10px;
+                    padding: 10px 20px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    font-family: 'Segoe UI', sans-serif;
+                }}
+                QPushButton:hover {{
+                    background-color: rgba(251,191,36,0.25);
+                }}
+            """)
+            self.show_notification("Пауза", "Анализ лица и осанки приостановлен", accent='#FBBF24')
+        else:
+            self.btn_pause.setText("⏸  Пауза анализа")
+            self.btn_pause.setStyleSheet("")
+            # Восстанавливаем стиль ModernButton
+            self.btn_pause.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {DARK_COLORS['bg_card']};
+                    color: {DARK_COLORS['text_secondary']};
+                    border: 1px solid {DARK_COLORS['border']};
+                    border-radius: 10px;
+                    padding: 10px 20px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    font-family: 'Segoe UI', sans-serif;
+                }}
+                QPushButton:hover {{
+                    background-color: {DARK_COLORS['bg_input']};
+                    border-color: {DARK_COLORS['border_light']};
+                }}
+            """)
+            self.show_notification("Анализ", "Анализ возобновлён")
+
     def toggle_gesture(self):
-        if hasattr(self.video_thread, 'gesture_controller'):
-            enabled = self.video_thread.gesture_controller.toggle()
+        hp = getattr(self.video_thread, 'hand_processor', None)
+        if hp is not None:
+            enabled = hp.toggle_gesture_control()
             if enabled:
                 self.gesture_status.setText("Вкл")
                 self.gesture_status.setStyleSheet(f"color: {DARK_COLORS['good']};")
@@ -1135,6 +1459,8 @@ class MainWindow(QMainWindow):
                 self.gesture_status.setText("Выкл")
                 self.gesture_status.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
                 self.btn_gesture.setText("🖱️  Управление мышью")
+        else:
+            self.show_notification("Жесты", "Управление жестами недоступно")
     
     def show_gesture_help(self):
         from gui_help import GestureHelpWindow
@@ -1142,13 +1468,13 @@ class MainWindow(QMainWindow):
         help_dialog.exec()
     
     def on_escape_pressed(self):
-        if hasattr(self.video_thread, 'gesture_controller'):
-            if self.video_thread.gesture_controller.enabled:
-                self.video_thread.gesture_controller.disable()
-                self.gesture_status.setText("Выкл")
-                self.gesture_status.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
-                self.btn_gesture.setText("🖱️  Управление мышью")
-                self.show_notification("Мышь", "Управление выключено")
+        hp = getattr(self.video_thread, 'hand_processor', None)
+        if hp is not None and hp.is_enabled():
+            hp.disable_gesture_control()
+            self.gesture_status.setText("Выкл")
+            self.gesture_status.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
+            self.btn_gesture.setText("🖱️  Управление мышью")
+            self.show_notification("Мышь", "Управление выключено")
     
     def update_session_stats(self):
         elapsed = int(time.time() - self.session_start_time)
@@ -1156,18 +1482,33 @@ class MainWindow(QMainWindow):
         minutes = (elapsed % 3600) // 60
         seconds = elapsed % 60
         self.session_time_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
-        
+
         if hasattr(self, 'event_list'):
             self.session_events_label.setText(str(self.event_list.count()))
+
+        # Обновляем дневной прогресс каждые 5 минут
+        if elapsed > 0 and elapsed % 300 == 0:
+            try:
+                from src.progress_tracker import ProgressTracker
+                ProgressTracker().update_daily_progress()
+            except Exception:
+                pass
 
     def check_notifications(self):
         result = self.notify_manager.check_conditions()
         if result:
             title, msg = result
-            self.show_notification(title, msg)
+            # Подбираем цвет акцента по теме уведомления
+            if 'осанк' in title.lower() or 'осанк' in msg.lower():
+                accent = '#F87171'   # danger — осанка
+            elif 'устал' in title.lower() or 'зева' in msg.lower():
+                accent = '#FBBF24'  # warning — усталость
+            else:
+                accent = '#6B8AFE'  # accent — перерыв/общее
+            self.show_notification(title, msg, accent=accent)
 
-    def show_notification(self, title, msg):
-        self.toast = ToastNotification(title, msg)
+    def show_notification(self, title, msg, accent=None):
+        self.toast = ToastNotification(title, msg, accent_color=accent)
         self.toast.show_toast()
 
 
