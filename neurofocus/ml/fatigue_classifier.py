@@ -41,11 +41,17 @@ class FatigueClassifier:
         from .blink_tracker import BlinkTracker
         from .microsleep_detector import MicrosleepDetector
         from .temporal_features import TemporalFeatureExtractor
+        from .user_profile import UserProfile
+        from .threshold_adapter import ThresholdAdapter
         
         self.blink_tracker = BlinkTracker()
         self.microsleep_detector = MicrosleepDetector()
         self.temporal_extractor = TemporalFeatureExtractor(window_size=30)
-        
+
+        # User profile & online-learning adapter (wired by MLCoordinator)
+        self.user_profile = None
+        self.threshold_adapter = None
+
         # Frame buffer for LSTM (if used)
         self.frame_buffer = deque(maxlen=30)
         
@@ -57,7 +63,39 @@ class FatigueClassifier:
         
         # Load or build model
         self._init_model()
-    
+
+    def set_thresholds(self, adapter):
+        """Wired by MLCoordinator after warm-up — personalizes blink / microsleep thresholds."""
+        self.threshold_adapter = adapter
+        self.user_profile = adapter.profile
+        up = adapter.profile
+        self.blink_tracker.set_thresholds(
+            up.ear_open_mean - up.ear_open_std * 0.5,
+            up.ear_closed_mean + up.ear_closed_std * 0.5,
+        )
+        self.microsleep_detector.set_threshold(
+            up.ear_closed_mean + up.ear_closed_std
+        )
+
+    def apply_personalization(self, ear, mar, blink_rate):
+        """Delegate to user profile if available."""
+        if self.user_profile:
+            return self.user_profile.apply_personalization(ear, mar, blink_rate)
+        return {"personal_fatigue_factor": 1.0}
+
+    def _get_personalized_thresholds(self):
+        """Return current EAR/MAR thresholds — use personal if calibrated."""
+        if self.user_profile and self.user_profile.calibrated:
+            gap = self.user_profile.ear_open_mean - self.user_profile.ear_closed_mean
+            ear_low = self.user_profile.ear_closed_mean + gap * 0.3
+            ear_high = self.user_profile.ear_open_mean - gap * 0.05
+            mar_threshold = self.user_profile.mar_yawn_threshold
+        else:
+            ear_low = 0.22
+            ear_high = 0.28
+            mar_threshold = 0.5
+        return ear_low, ear_high, mar_threshold
+
     def _init_model(self):
         """Initialize TensorFlow model."""
         if os.path.exists(self.model_path):
@@ -343,6 +381,8 @@ class FatigueClassifier:
                 cnn_result = self._predict_cnn(img)
                 # LSTM overrides CNN when available (better temporal analysis)
                 if lstm_result is not None:
+                    # Sanity check before using LSTM
+                    lstm_result = self._sanity_check_lstm(lstm_result, ear, mar, blink_rate)
                     cnn_result['status'] = lstm_result['status']
                     cnn_result['confidence'] = lstm_result['confidence']
                     return _build_result(cnn_result, 'lstm')
@@ -350,6 +390,23 @@ class FatigueClassifier:
 
         # LSTM-only path: CNN not available but buffer is full
         if lstm_result is not None:
+            # ── Sanity check: override LSTM if it contradicts geometric evidence ──
+            # LSTM was trained on synthetic data and may produce nonsense
+            # when real EAR/MAR distributions differ significantly.
+            lstm_result = self._sanity_check_lstm(lstm_result, ear, mar, blink_rate)
+
+            # ── Replace LSTM confidence with geometric confidence ─────────────
+            # ONLY when sanity check did NOT override.  The override already
+            # sets a stable confidence.  Replacing it with raw-EAR confidence
+            # would cause attention drops during blinks (EAR~0.12 → conf~0.09).
+            was_overridden = lstm_result.get('sanity_override', False)
+            if not was_overridden:
+                lstm_result['confidence'] = self._compute_geometric_confidence(
+                    ear, mar, blink_rate
+                )
+            # Clean up internal flag
+            lstm_result.pop('sanity_override', None)
+
             return _build_result(lstm_result, 'lstm')
 
         # Fallback to geometric calculation
@@ -566,14 +623,44 @@ class FatigueClassifier:
         }
         base = status_scores.get(status, 0)
         return min(100, base + (1 - confidence) * 20)
+
+    def _compute_geometric_confidence(self, ear: float, mar: float,
+                                       blink_rate: int) -> float:
+        """
+        Compute a STABLE confidence score from raw geometric features.
+
+        After warm-up uses personalized EAR thresholds; before warm-up
+        falls back to reasonable defaults.
+
+        Returns: 0.0 – 1.0
+        """
+        import numpy as np
+
+        # Центр сигмоиды — граница awake/drowsy (персонализированная или default)
+        up = getattr(self, 'user_profile', None)
+        if up is not None and getattr(up, 'calibrated', False):
+            center = (up.ear_open_mean + up.ear_closed_mean) / 2.0
+            # Крутизна: чем уже диапазон EAR у пользователя, тем резче переход
+            gap = max(0.05, up.ear_open_mean - up.ear_closed_mean)
+            steepness = 10.0 / gap
+        else:
+            center = 0.24
+            steepness = 18.0
+
+        ear_confidence = float(1.0 / (1.0 + np.exp(-steepness * (ear - center))))
+
+        # MAR penalty: открытый рот снижает уверенность «бодрствует»
+        mar_penalty = 0.1 * max(0.0, mar - 0.40)
+
+        # Blink-rate penalty: очень высокая частота моргания снижает уверенность
+        blink_penalty = 0.05 * max(0.0, (blink_rate - 20) / 30.0)
+
+        return float(np.clip(ear_confidence - mar_penalty - blink_penalty, 0.15, 0.95))
     
     def _predict_geometric(self, face_landmarks, ear, mar):
         """Fallback: use geometric features for classification."""
-        # Geometric thresholds
-        ear_threshold_low = 0.22
-        ear_threshold_high = 0.28
-        mar_threshold = 0.5
-        
+        ear_threshold_low, ear_threshold_high, mar_threshold = self._get_personalized_thresholds()
+
         if ear < ear_threshold_low:
             status = 'sleeping'
             confidence = 0.9
@@ -709,7 +796,169 @@ class FatigueClassifier:
         except Exception as e:
             print(f"Failed to save model: {e}")
             return False
-    
+
+    def _sanity_check_lstm(self, lstm_result: dict, ear: float, mar: float,
+                           blink_rate: int) -> dict:
+        """
+        Override LSTM prediction when it contradicts obvious geometric evidence.
+
+        LSTM trained on synthetic data often misclassifies because real EAR
+        values (0.35-0.50) fall outside its training distribution (0.15-0.34).
+        These hard rules catch the most egregious errors.
+
+        After warm-up, uses personalized EAR thresholds from user_profile
+        instead of hardcoded defaults.
+
+        Returns:
+            Modified result dict if override needed, otherwise original.
+        """
+        status = lstm_result.get('status', 'awake')
+        confidence = lstm_result.get('confidence', 0.0)
+        raw = lstm_result.get('raw_scores', [0.0, 0.0, 0.0])
+
+        # ── Determine thresholds (personalized after warm-up) ─────
+        up = getattr(self, 'user_profile', None)
+        if up is not None and getattr(up, 'calibrated', False):
+            # ear_open_clearly: немного ниже среднего «открытого» EAR пользователя
+            ear_clearly_open = up.ear_open_mean - up.ear_open_std * 0.5
+            # граница awake/drowsy — середина между open и closed
+            ear_boundary = (up.ear_open_mean + up.ear_closed_mean) / 2.0
+        else:
+            # Дефолтные пороги (до персонализации)
+            ear_clearly_open = 0.30   # было 0.35, снижено для малых глаз/очков
+            ear_boundary = 0.24       # было 0.27
+
+        # ── Rule 1: EAR явно в «открытом» диапазоне ──────────────
+        if ear > ear_clearly_open and status in ('drowsy', 'sleeping'):
+            return {
+                'status': 'awake',
+                'confidence': 0.92,
+                'raw_scores': [0.88, 0.08, 0.04],
+                'sanity_override': True,
+            }
+
+        # ── Rule 2: EAR выше границы AND редкое моргание → бодрствование ─
+        if ear > ear_boundary and blink_rate < 12 and status in ('drowsy', 'sleeping'):
+            return {
+                'status': 'awake',
+                'confidence': 0.88,
+                'raw_scores': [0.85, 0.10, 0.05],
+                'sanity_override': True,
+            }
+
+        # ── Rule 2b: EAR > 0.30 → almost certainly awake ─────────
+        if ear > 0.30 and status == 'sleeping':
+            return {
+                'status': 'awake',
+                'confidence': 0.85,
+                'raw_scores': [0.82, 0.12, 0.06],
+                'sanity_override': True,
+            }
+
+        # ── Rule 2c: EAR 0.18-0.30 AND LSTM says "sleeping" ─────
+        # Mid-range EAR cannot mean sleeping — it's either a blink
+        # mid-phase or model confusion on out-of-distribution data.
+        if 0.18 <= ear <= 0.30 and status == 'sleeping':
+            recent_blinks = len([
+                t for t in self.blink_tracker.blink_timestamps
+                if time.time() - t < 3.0
+            ])
+            if recent_blinks <= 3:
+                return {
+                    'status': 'awake',
+                    'confidence': 0.82,
+                    'raw_scores': [0.80, 0.13, 0.07],
+                    'sanity_override': True,
+                }
+            # Multiple closures without recovery — possible microsleep
+            return {
+                'status': 'drowsy',
+                'confidence': 0.70,
+                'raw_scores': [0.20, 0.65, 0.15],
+                'sanity_override': True,
+            }
+
+        # ── Rule 3: EAR < 0.18 AND LSTM says "awake" → blink artifact ─────
+        # LSTM may occasionally still say "awake" despite low EAR.
+        # Check if this is a recent blink event.
+        if ear < 0.18 and status == 'awake':
+            recent_blinks = len([
+                t for t in self.blink_tracker.blink_timestamps
+                if time.time() - t < 2.0
+            ])
+            if recent_blinks <= 1:
+                return {
+                    'status': 'awake',
+                    'confidence': 0.80,
+                    'raw_scores': [0.78, 0.15, 0.07],
+                    'sanity_override': True,
+                }
+            return {
+                'status': 'sleeping',
+                'confidence': min(0.85, confidence),
+                'raw_scores': raw,
+                'sanity_override': True,
+            }
+
+        # ── Rule 3b: EAR < 0.18 AND LSTM says "sleeping" → likely blink ──
+        # LSTM has no blink awareness — it sees low EAR and screams "sleeping".
+        # Check recent blink history to distinguish blink from microsleep.
+        if ear < 0.18 and status == 'sleeping':
+            recent_blinks = len([
+                t for t in self.blink_tracker.blink_timestamps
+                if time.time() - t < 2.0
+            ])
+            if recent_blinks <= 2:
+                # Part of a normal blink — override to awake
+                return {
+                    'status': 'awake',
+                    'confidence': 0.80,
+                    'raw_scores': [0.78, 0.15, 0.07],
+                    'sanity_override': True,
+                }
+            # Prolonged closure — likely real microsleep
+            return {
+                'status': 'sleeping',
+                'confidence': 0.90,
+                'raw_scores': raw,
+                'sanity_override': True,
+            }
+
+        # ── Rule 3c: EAR 0.18-0.26 AND LSTM says "drowsy" → likely mid-blink ──
+        if ear < 0.26 and status == 'drowsy':
+            recent_blinks = len([
+                t for t in self.blink_tracker.blink_timestamps
+                if time.time() - t < 2.0
+            ])
+            if recent_blinks <= 2:
+                return {
+                    'status': 'awake',
+                    'confidence': 0.82,
+                    'raw_scores': [0.80, 0.13, 0.07],
+                    'sanity_override': True,
+                }
+
+        # ── Rule 4: EAR 0.18-0.22 + blink_rate > 30 → drowsy ───
+            return {
+                'status': 'drowsy',
+                'confidence': min(0.75, confidence),
+                'raw_scores': raw,
+                'sanity_override': True,
+            }
+
+        # ── Rule 5: EAR 0.18-0.26 + high MAR → drowsy ──────────
+        # Slightly narrow eyes + open mouth = yawning/fatigue.
+        if 0.18 < ear < 0.26 and mar > 0.50 and status == 'awake':
+            return {
+                'status': 'drowsy',
+                'confidence': min(0.7, confidence),
+                'raw_scores': raw,
+                'sanity_override': True,
+            }
+
+        # All checks passed — trust LSTM
+        return lstm_result
+
     def get_status_text(self, status: str) -> str:
         """Get human-readable status text."""
         status_map = {

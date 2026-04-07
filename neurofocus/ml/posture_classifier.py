@@ -4,6 +4,8 @@ Predicts posture quality from pose landmarks.
 Supports both MediaPipe and TensorFlow Hub MoveNet models.
 """
 
+import os
+
 import numpy as np
 from collections import deque
 
@@ -46,6 +48,8 @@ class PostureClassifier:
         
         if model_path:
             self._load_model(model_path)
+        elif os.path.exists('models/posture_lstm.keras'):
+            self._load_model('models/posture_lstm.keras')
     
     def _init_tf_hub(self):
         """Initialize TensorFlow Hub MoveNet estimator."""
@@ -66,9 +70,37 @@ class PostureClassifier:
             print(f"Posture model loaded from {model_path}")
         except Exception as e:
             print(f"Failed to load posture model: {e}")
+            # Try alternate LSTM model path
+            lstm_alt = os.path.join(os.path.dirname(model_path or ''), 'posture_lstm.keras')
+            if not os.path.exists(lstm_alt):
+                lstm_alt = 'models/posture_lstm.keras'
+            if os.path.exists(lstm_alt):
+                try:
+                    self._load_model(lstm_alt)
+                    return
+                except Exception:
+                    pass
             self._use_fallback = True
-    
-    def predict(self, pose_landmarks):
+
+    # -- online learning / personalisation --
+
+    def enable_ml_progressive(self):
+        """Enable ML model if available; removes forced geometric-only mode."""
+        if self.model is not None:
+            self._use_fallback = False
+            print("[PostureClassifier] ML model enabled progressively.")
+        else:
+            print("[PostureClassifier] No ML model available, keeping geometric fallback.")
+
+    def set_thresholds(self, adapter):
+        """Adapt geometric thresholds from calibrated user profile."""
+        self._shoulder_tilt_threshold = getattr(adapter.profile, 'posture_tilt_threshold', 12.0)
+        self._forward_lean_threshold = getattr(adapter.profile, 'posture_lean_threshold', 0.08)
+        print(f"[PostureClassifier] Personalized thresholds set: tilt={self._shoulder_tilt_threshold:.1f}, lean={self._forward_lean_threshold:.2f}")
+
+    # -- prediction with ML blend --
+
+    def predict(self, pose_landmarks, ml_weight: float = 0.0):
         """
         Predict posture quality from pose landmarks.
         
@@ -84,11 +116,17 @@ class PostureClassifier:
                 'confidence': 0.0,
                 'raw_scores': [0.0, 0.0, 0.0]
             }
-        
+
+        # Progressive blend: ML + geometric
+        if ml_weight > 0.0 and not self._use_fallback:
+            ml_result = self._predict_ml(pose_landmarks)
+            geo_result = self._predict_geometric(pose_landmarks)
+            return self._blend_predictions(ml_result, geo_result, ml_weight)
+
         # Use ML model if available
         if not self._use_fallback:
             return self._predict_ml(pose_landmarks)
-        
+
         # Use geometric fallback
         return self._predict_geometric(pose_landmarks)
     
@@ -322,7 +360,51 @@ class PostureClassifier:
         except Exception as e:
             print(f"Error in ML posture prediction: {e}")
             return self._predict_geometric(pose_landmarks)
-    
+
+    def _blend_predictions(self, ml_result: dict, geo_result: dict,
+                           ml_weight: float) -> dict:
+        """Blend ML and geometric predictions with a weight (0 = pure geometric, 1 = pure ML)."""
+        status_order = {'good': 0, 'fair': 1, 'bad': 2, 'unknown': 0}
+        ml_idx = status_order.get(ml_result.get('status', 'good'), 0)
+        geo_idx = status_order.get(geo_result.get('status', 'good'), 0)
+
+        ml_conf = ml_result.get('confidence', 0.0)
+        geo_conf = geo_result.get('confidence', 0.0)
+
+        blended_score = (ml_weight * ml_idx * ml_conf
+                         + (1 - ml_weight) * geo_idx * geo_conf)
+        norm = ml_weight * ml_conf + (1 - ml_weight) * geo_conf
+        if norm > 0:
+            blended_score /= norm
+
+        raw_scores = [0.0, 0.0, 0.0]
+        if blended_score < 0.5:
+            status = 'good'
+            raw_scores[0] = max(ml_result.get('raw_scores', [0, 0, 0])[0] if ml_result.get('raw_scores') else 0.0,
+                               geo_result.get('raw_scores', [0, 0, 0])[0] if geo_result.get('raw_scores') else 0.0)
+        elif blended_score < 1.5:
+            status = 'fair'
+            raw_scores[1] = max(ml_result.get('raw_scores', [0, 0, 0])[1] if ml_result.get('raw_scores') else 0.0,
+                               geo_result.get('raw_scores', [0, 0, 0])[1] if geo_result.get('raw_scores') else 0.0)
+        else:
+            status = 'bad'
+            raw_scores[2] = max(ml_result.get('raw_scores', [0, 0, 0])[2] if ml_result.get('raw_scores') else 0.0,
+                               geo_result.get('raw_scores', [0, 0, 0])[2] if geo_result.get('raw_scores') else 0.0)
+
+        confidence = ml_weight * ml_conf + (1 - ml_weight) * geo_conf
+
+        self.prediction_history.append(status)
+        smoothed_status = self._smooth_prediction()
+
+        return {
+            'status': smoothed_status,
+            'confidence': confidence,
+            'raw_scores': raw_scores,
+            'shoulder_angle': geo_result.get('shoulder_angle', ml_result.get('shoulder_angle', 0)),
+            'shoulder_diff': geo_result.get('shoulder_diff', ml_result.get('shoulder_diff', 0)),
+            'head_height': geo_result.get('head_height', ml_result.get('head_height', 0)),
+        }
+
     def _smooth_prediction(self):
         """Apply smoothing to predictions using voting."""
         if len(self.prediction_history) < 3:
@@ -332,13 +414,100 @@ class PostureClassifier:
         counts = Counter(self.prediction_history)
         return counts.most_common(1)[0][0]
     
-    def predict_from_face_mesh(self, face_landmarks, frame_width=640, frame_height=480):
+    def predict_from_face_mesh(self, face_landmarks, frame_width=640, frame_height=480,
+                               calibration_baseline_pitch: float = 0.0,
+                               head_pitch: float = None):
         """
-        Когда плечи не видны (pose landmarks недоступны) — возвращаем 'unknown',
-        чтобы не генерировать ложные тревоги осанки.
-        Полноценная оценка возможна только при видимых плечах.
+        Когда Pose-landmarks недоступны — геометрический анализ по Face Mesh.
+
+        Метрики:
+          head_tilt  — угол линии ушей (боковой наклон головы)
+          pitch_dev  — отклонение текущего pitch от калибровочного baseline
+                       (наклон вперёд/назад); если pitch не передан, не учитывается
+
+        Parameters:
+            face_landmarks             — MediaPipe Face Mesh landmarks
+            frame_width, frame_height  — размеры кадра (не используются, для совместимости)
+            calibration_baseline_pitch — эталонный pitch из калибровки (градусы)
+            head_pitch                 — текущий pitch головы в градусах (из face_processor)
         """
-        return {'status': 'unknown', 'confidence': 0.0}
+        if face_landmarks is None:
+            return {'status': 'unknown', 'confidence': 0.0}
+
+        try:
+            import math
+
+            if hasattr(face_landmarks, 'landmark'):
+                lms = face_landmarks.landmark
+            elif isinstance(face_landmarks, list):
+                lms = face_landmarks
+            else:
+                return {'status': 'unknown', 'confidence': 0.0}
+
+            if len(lms) < 460:
+                return {'status': 'unknown', 'confidence': 0.0}
+
+            left_ear  = lms[234]
+            right_ear = lms[454]
+
+            # ── 1. Боковой наклон головы (угол линии ушей) ──────
+            ear_dy = right_ear.y - left_ear.y
+            ear_dx = right_ear.x - left_ear.x
+            head_tilt = abs(math.degrees(math.atan2(ear_dy, ear_dx + 1e-6)))
+            if head_tilt > 90:
+                head_tilt = 180 - head_tilt
+
+            # ── 2. Наклон вперёд (отклонение pitch от baseline) ─
+            # Pitch > baseline → голова/корпус наклонены вперёд (плохая осанка)
+            pitch_dev = 0.0
+            if head_pitch is not None:
+                pitch_dev = float(head_pitch) - float(calibration_baseline_pitch)
+                # Игнорируем запрокидывание назад (отрицательное отклонение)
+                pitch_dev = max(0.0, pitch_dev)
+
+            # ── Подсчёт баллов ───────────────────────────────────
+            bad_score = 0
+
+            # Боковой наклон
+            if head_tilt > 20:
+                bad_score += 50
+            elif head_tilt > 12:
+                bad_score += 28
+            elif head_tilt > 7:
+                bad_score += 12
+
+            # Наклон вперёд (только если pitch передан)
+            if pitch_dev > 30:
+                bad_score += 50
+            elif pitch_dev > 18:
+                bad_score += 30
+            elif pitch_dev > 10:
+                bad_score += 12
+
+            # ── Итог ─────────────────────────────────────────────
+            if bad_score >= 42:
+                status = 'bad'
+                confidence = min(0.92, bad_score / 100.0)
+            elif bad_score >= 20:
+                status = 'fair'
+                confidence = 0.65
+            else:
+                status = 'good'
+                confidence = 0.88
+
+            self.prediction_history.append(status)
+            smoothed_status = self._smooth_prediction()
+
+            return {
+                'status': smoothed_status,
+                'confidence': confidence,
+                'head_tilt': head_tilt,
+                'pitch_dev': pitch_dev,
+            }
+
+        except Exception as e:
+            print(f"Error in face_mesh posture prediction: {e}")
+            return {'status': 'unknown', 'confidence': 0.0}
 
     def _predict_from_face_mesh_impl(self, face_landmarks, frame_width=640, frame_height=480):
         """

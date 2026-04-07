@@ -279,26 +279,30 @@ class VideoThread(QThread):
                 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
                 from neurofocus.ml.fatigue_classifier import FatigueClassifier
                 from neurofocus.ml.posture_classifier import PostureClassifier
+                from neurofocus.ml.ml_coordinator import MLCoordinator
                 from neurofocus.detectors.pose_detector import PoseDetector
 
-                self.fatigue_classifier = FatigueClassifier()  # loads LSTM from models/fatigue_lstm.keras
+                self.fatigue_classifier = FatigueClassifier()
                 self.posture_classifier = PostureClassifier(
                     model_path='models/posture_model.keras'
                 )
-                # Принудительно используем геометрический метод — keras-модель
-                # обучена на неизвестных данных и даёт ненадёжные результаты.
-                # Геометрика по плечам/голове работает предсказуемо.
-                self.posture_classifier._use_fallback = True
                 self.pose_detector = PoseDetector(
                     model_path='models/pose_landmarker_lite.task'
                 )
+
+                # ML Coordinator: manages warm-up, personalized thresholds, ML blend
+                self.ml_coordinator = MLCoordinator(
+                    self.fatigue_classifier, self.posture_classifier
+                )
+
                 self._ml_ready = True
-                logger.info("ML классификаторы (LSTM усталость + Dense осанка) загружены")
+                logger.info("ML классификаторы + Online Learning загружены")
             except Exception as ml_err:
                 logger.warning(f"ML классификаторы недоступны, используются пороговые значения: {ml_err}")
                 self.fatigue_classifier = None
                 self.posture_classifier = None
                 self.pose_detector = None
+                self.ml_coordinator = None
 
             self._initialized = True
 
@@ -377,6 +381,7 @@ class VideoThread(QThread):
             "fatigue_status": "Awake", "fatigue_score": 0,
             "blink_rate": 0, "yawning": False, "microsleep_detected": False,
             "model_used": "geometric", "posture_status": "Good",
+            "ml_warmup_progress": 0,
         }
         self._last_data = dict(default_data)
 
@@ -623,6 +628,16 @@ class VideoThread(QThread):
         data["pitch"] = pitch
         data["face_detected"] = face_data.get('detected', False)
 
+        # --- Online Learning: feed features into ML coordinator ---
+        # Передаём face_is_visible, чтобы ThresholdAdapter ставил warm-up
+        # на паузу при потере лица (не копит мусорные сэмплы).
+        if self._ml_ready and self.ml_coordinator is not None:
+            self.ml_coordinator.update(
+                ear, mar, pitch, current_time,
+                face_is_visible=is_face_valid,
+            )
+            data["ml_warmup_progress"] = self.ml_coordinator.get_calibration_progress()
+
         # --- Emotion ---
         try:
             emotion = self.emotion_processor.process(frame, face_data['landmarks'])
@@ -652,24 +667,63 @@ class VideoThread(QThread):
             fatigue_data = self.fatigue_processor.process(ear, mar, pitch, emotion, current_time)
         data.update(fatigue_data)
 
+        # --- Online Learning: collect labeled sample for background retraining ---
+        # Вызывается каждый heavy-ML кадр (~4 Hz). Фоновый поток запустит
+        # дообучение, когда наберётся 500 сэмплов (RETRAIN_THRESHOLD).
+        if self._ml_ready and self.ml_coordinator is not None:
+            try:
+                self.ml_coordinator.collect_sample(
+                    ear, mar, pitch,
+                    fatigue_data.get('fatigue_level', 'normal'),
+                    current_time,
+                )
+            except Exception as ol_e:
+                # Online learning не должен ломать основной цикл
+                logger.warning(f"Online learning collect error: {ol_e}")
+
         # --- Posture: ML (Dense) with Pose or face-mesh fallback ---
         posture_data = {}
         if self._ml_ready and self.posture_classifier is not None and self.pose_detector is not None:
+            ml_weight = self.ml_coordinator.get_ml_blend_weight() if self.ml_coordinator else 0.0
             try:
                 _, pose_results = self.pose_detector.process_frame(frame, draw=False)
                 pose_landmarks = self.pose_detector.get_landmarks(pose_results)
-                if pose_landmarks is not None and len(pose_landmarks) >= 25:
-                    ml_posture = self.posture_classifier.predict(pose_landmarks)
+
+                # Проверяем, что плечи видны (nose=0, l_shoulder=11, r_shoulder=12).
+                # get_landmarks() возвращает список, поэтому hasattr(..., 'landmark') = False.
+                # Бёдра (23, 24) на вебкамере не видны — не требуем их здесь;
+                # extract_pose_features сам откажется от ML если бёдра невидны.
+                pose_usable = (
+                    pose_landmarks is not None
+                    and isinstance(pose_landmarks, list)
+                    and len(pose_landmarks) >= 13
+                    and getattr(pose_landmarks[11], 'visibility', 0) > 0.3
+                    and getattr(pose_landmarks[12], 'visibility', 0) > 0.3
+                )
+
+                if pose_usable:
+                    ml_posture = self.posture_classifier.predict(pose_landmarks, ml_weight=ml_weight)
+                    used = 'ml_progressive' if 0 < ml_weight < 1 else ('ml_pure' if ml_weight >= 1.0 else 'ml_dense')
                     posture_data = {
                         'posture_status': ml_posture.get('status', 'good').capitalize(),
                         'posture_score': int(ml_posture.get('confidence', 0) * 100),
                         'posture_level': ml_posture.get('status', 'good'),
                         'posture_alert': ml_posture.get('status') == 'bad',
-                        'model_used_posture': 'ml_dense',
+                        'model_used_posture': used,
                     }
                 else:
+                    # Pose landmarks недоступны или неполные —
+                    # используем геометрический анализ по Face Mesh
+                    # с компенсацией угла камеры из калибровки
+                    baseline_pitch = 0.0
+                    if self.calibration_manager:
+                        baseline_pitch = self.calibration_manager.posture_calibration.get(
+                            'baseline_pitch', 0.0
+                        )
                     pm = self.posture_classifier.predict_from_face_mesh(
-                        face_data['landmarks'], frame.shape[1], frame.shape[0]
+                        face_data['landmarks'], frame.shape[1], frame.shape[0],
+                        calibration_baseline_pitch=baseline_pitch,
+                        head_pitch=pitch,
                     )
                     posture_data = {
                         'posture_status': pm.get('status', 'good').capitalize(),
@@ -704,6 +758,20 @@ class VideoThread(QThread):
         if posture_data.get('event'):
             data["event"] = posture_data['event']
 
+        # ── DIAGNOSTIC: log first 5 heavy-ML cycles ──────────────
+        if self.frame_counter < 40 and self.frame_counter % 8 == 0:
+            logger.info(
+                f"[DIAG] frame={self.frame_counter} | "
+                f"ear={ear:.3f} mar={mar:.3f} pitch={pitch:.2f} | "
+                f"fatigue={fatigue_data.get('status', 'N/A')} "
+                f"score={fatigue_data.get('fatigue_score', 0):.0f} "
+                f"model={fatigue_data.get('model_used', 'N/A')} | "
+                f"posture={posture_data.get('posture_status', 'N/A')} "
+                f"level={posture_data.get('posture_level', 'N/A')} "
+                f"model={posture_data.get('model_used_posture', 'N/A')} | "
+                f"blink_rate={fatigue_data.get('blink_rate', 0)}"
+            )
+
 
         # --- DB save (every ~1s) ---
         if time.time() - self.last_save_time > 1.0:
@@ -718,6 +786,12 @@ class VideoThread(QThread):
                 fatigue_db = 'Eyes Closed'
             else:
                 fatigue_db = fatigue_raw
+
+            # Добавляем информацию об использованной модели в статус
+            model_used = fatigue_data.get('model_used', 'geometric')
+            posture_model_used = posture_data.get('model_used_posture', 'geometric')
+            fatigue_db = f"{fatigue_db} [{model_used}]"
+            posture_db = f"{posture_db} [{posture_model_used}]"
 
             self.db.save_log(
                 ear=ear, mar=mar, pitch=pitch, emotion=emotion,
@@ -1357,6 +1431,13 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'video_thread'):
             self.video_thread.stop()
             self.video_thread.wait(3000)
+
+        # Gracefully flush async DB queue
+        if hasattr(self, 'db') and self.db:
+            try:
+                self.db.stop(timeout=5.0)
+            except Exception as e:
+                logger.error(f"Ошибка остановки БД: {e}")
 
         try:
             from src.progress_tracker import ProgressTracker

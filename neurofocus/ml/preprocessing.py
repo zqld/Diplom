@@ -152,9 +152,25 @@ def extract_pose_features(pose_landmarks):
         return None
     
     try:
+        # Проверяем видимость бёдер — если не видны, ML-модель даст мусор,
+        # возвращаем None чтобы PostureClassifier упал в _predict_geometric.
+        try:
+            if isinstance(pose_landmarks, list) and hasattr(pose_landmarks[0], 'x'):
+                hip_l_vis = getattr(pose_landmarks[23], 'visibility', 0.0)
+                hip_r_vis = getattr(pose_landmarks[24], 'visibility', 0.0)
+                if hip_l_vis < 0.4 or hip_r_vis < 0.4:
+                    return None
+            elif hasattr(pose_landmarks, 'landmark'):
+                lms_v = pose_landmarks.landmark
+                if (getattr(lms_v[23], 'visibility', 0.0) < 0.4
+                        or getattr(lms_v[24], 'visibility', 0.0) < 0.4):
+                    return None
+        except Exception:
+            return None
+
         features = []
         scale = 640.0
-        
+
         # Get key points
         left_shoulder = get_point('left_shoulder')
         right_shoulder = get_point('right_shoulder')
