@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "mcp__ide__getDiagnostics",
-      "Bash(python -m py_compile gui_main.py)",
-      "Bash(python -c \"import gui_main; print\\('OK — all imports valid'\\)\")"
-    ]
-  }
-}
