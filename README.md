@@ -64,7 +64,7 @@ pip install -r requirements.txt
 ### Запуск
 
 ```bash
-python gui_main.py
+python main.py
 ```
 
 ## Горячие клавиши
@@ -78,13 +78,14 @@ python gui_main.py
 
 ```
 NeuroFocus/
-├── gui_main.py             # Главное окно, VideoThread
-├── gui_calibration.py      # Диалог последовательной калибровки
-├── gui_settings.py         # Окно настроек
-├── gui_help.py             # Справка по жестам
-├── gui_stats.py            # Статистика
-├── gui_pomodoro.py         # Pomodoro таймер
-├── gui_progress.py         # Прогресс
+├── main.py                 # Главное окно, VideoThread
+├── ui/
+│   ├── calibration.py      # Диалог последовательной калибровки
+│   ├── settings.py         # Окно настроек
+│   ├── help.py             # Справка по жестам
+│   ├── stats.py            # Статистика
+│   ├── pomodoro.py         # Pomodoro таймер
+│   └── progress.py         # Прогресс
 ├── src/
 │   ├── calibration_manager.py  # Управление калибровкой (лицо, осанка, рука, зона)
 │   ├── gesture_controller.py   # Адаптивное управление мышью
