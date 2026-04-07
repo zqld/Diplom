@@ -650,15 +650,36 @@ class VideoThread(QThread):
         if self._ml_ready and self.fatigue_classifier is not None:
             try:
                 ml_fatigue = self.fatigue_classifier.predict(face_data['landmarks'], frame)
+                _f_status   = ml_fatigue.get('status', 'awake')
+                _yawning    = ml_fatigue.get('yawning', False)
+                _microsleep = ml_fatigue.get('microsleep_detected', False)
+
+                # Маппинг статуса на уровень (нужен online learning и update_dashboard)
+                _level_map = {'awake': 'normal', 'drowsy': 'moderate', 'sleeping': 'severe'}
+                _f_level = _level_map.get(_f_status, 'normal')
+
+                # Генерация события (аналог FatigueProcessor, но из ML)
+                _f_event = None
+                if _yawning:
+                    _f_event = "Зевок"
+                elif _microsleep:
+                    _f_event = "Сильная усталость"
+                elif _f_status == 'sleeping':
+                    _f_event = "Сильная усталость"
+                elif _f_status == 'drowsy':
+                    _f_event = "Усталость"
+
                 fatigue_data = {
-                    'fatigue_status': ml_fatigue.get('status', 'awake').capitalize(),
-                    'fatigue_score': ml_fatigue.get('fatigue_score', 0),
-                    'blink_rate': ml_fatigue.get('blink_rate', 0),
+                    'fatigue_status': _f_status.capitalize(),
+                    'fatigue_score':  ml_fatigue.get('fatigue_score', 0),
+                    'fatigue_level':  _f_level,
+                    'blink_rate':     ml_fatigue.get('blink_rate', 0),
                     'ear': ear,
                     'mar': mar,
-                    'yawning': ml_fatigue.get('yawning', False),
-                    'microsleep_detected': ml_fatigue.get('microsleep_detected', False),
-                    'model_used': ml_fatigue.get('model_used', 'geometric'),
+                    'yawning':             _yawning,
+                    'microsleep_detected': _microsleep,
+                    'model_used':          ml_fatigue.get('model_used', 'geometric'),
+                    'event':               _f_event,
                 }
             except Exception as ml_e:
                 logger.warning(f"ML fatigue error, fallback: {ml_e}")
@@ -755,8 +776,17 @@ class VideoThread(QThread):
             or _pl == 'bad'
         )
 
-        if posture_data.get('event'):
-            data["event"] = posture_data['event']
+        # Выбор события для отображения в логе.
+        # Осанка имеет приоритет (у неё 30 с кулдаун), усталость — 2 с.
+        # Если осанка не выдала событие, показываем событие усталости.
+        _posture_ev = posture_data.get('event')
+        _fatigue_ev = data.get('event')   # уже заполнено из fatigue_data.update()
+        if _posture_ev:
+            data['event'] = _posture_ev
+        elif _fatigue_ev:
+            data['event'] = _fatigue_ev
+        else:
+            data['event'] = None
 
         # ── DIAGNOSTIC: log first 5 heavy-ML cycles ──────────────
         if self.frame_counter < 40 and self.frame_counter % 8 == 0:
@@ -1385,6 +1415,14 @@ class MainWindow(QMainWindow):
             if now - last_time > cooldown:
                 self.add_log_event(current_event, color)
                 self.last_event_times[tracking_key] = now
+                # Звуковой сигнал: осанка — attention, усталость — warning
+                try:
+                    if tracking_key == "posture_any":
+                        sound_manager.attention()
+                    else:
+                        sound_manager.warning()
+                except Exception:
+                    pass
 
     def open_stats(self):
         stats_dialog = StatsWindow()

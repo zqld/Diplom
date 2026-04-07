@@ -199,7 +199,8 @@ class NotificationManager:
             
             if result:
                 total_records = len(result)
-                bad_count = sum(1 for r in result if r[0] == 'Bad Posture')
+                # В БД хранится "Bad Posture [model_name]" — сравниваем через startswith
+                bad_count = sum(1 for r in result if str(r[0]).startswith('Bad Posture'))
                 bad_percent = (bad_count / total_records) * 100
                 
                 # Если процент плохой осанки выше порога
@@ -214,8 +215,8 @@ class NotificationManager:
             time_threshold_yawn = now - datetime.timedelta(minutes=window_yawn)
             
             sql_yawn = text("""
-                SELECT COUNT(*) FROM face_logs 
-                WHERE timestamp > :thresh AND fatigue_status = 'Yawning'
+                SELECT COUNT(*) FROM face_logs
+                WHERE timestamp > :thresh AND fatigue_status LIKE 'Yawning%'
             """)
             yawn_count = conn.execute(sql_yawn, {"thresh": time_threshold_yawn}).scalar()
             
