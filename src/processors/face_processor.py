@@ -59,8 +59,10 @@ class FaceProcessor:
             data['roll'] = roll
             
             if is_face_valid:
-                data['ear'] = calculate_ear(lm_points)
-                data['mar'] = calculate_mar(lm_points)
+                ear = calculate_ear(lm_points)
+                mar = calculate_mar(lm_points)
+                data['ear'] = ear
+                data['mar'] = mar
             
             logger.debug(f"Face processed: detected={is_detected}, valid={is_face_valid}")
             

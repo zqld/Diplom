@@ -31,12 +31,18 @@ class PoseDetector:
             return
             
         try:
-            if not os.path.exists(model_path):
-                print(f"PoseLandmarker model not found: {model_path}")
+            abs_path = os.path.abspath(model_path)
+            if not os.path.exists(abs_path):
+                print(f"PoseLandmarker model not found: {abs_path}")
                 return
-                
+
+            # Use model_asset_buffer to avoid Windows absolute-path issues
+            # with MediaPipe Tasks API (it sometimes prepends site-packages dir)
+            with open(abs_path, 'rb') as f:
+                model_buffer = f.read()
+
             options = PoseLandmarkerOptions(
-                base_options=BaseOptions(model_asset_path=model_path),
+                base_options=BaseOptions(model_asset_buffer=model_buffer),
             )
             self._detector = PoseLandmarker.create_from_options(options)
             self.available = True

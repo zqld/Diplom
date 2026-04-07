@@ -45,8 +45,9 @@ class ProgressTracker:
             start = f"{date} 00:00:00"
             end = f"{date} 23:59:59"
             
+            # Используем правильное имя таблицы - face_logs
             df = pd.read_sql_query(
-                "SELECT * FROM monitoring_log WHERE timestamp BETWEEN ? AND ?",
+                "SELECT * FROM face_logs WHERE timestamp BETWEEN ? AND ?",
                 conn,
                 params=[start, end]
             )
@@ -65,8 +66,14 @@ class ProgressTracker:
             else:
                 avg_attention = 100
             
-            fatigue_events = len(df[df['fatigue_status'].isin(['Fatigued', 'Tired', 'Yawning'])]) if 'fatigue_status' in df.columns else 0
-            posture_events = len(df[df['posture_status'] == 'Bad Posture']) if 'posture_status' in df.columns else 0
+            # Статусы усталости: ML-статусы + старые пороговые
+            fatigue_events = len(df[df['fatigue_status'].isin([
+                'Yawning', 'Eyes Closed', 'Drowsy',
+                'mild', 'moderate', 'severe', 'Засыпает', 'Усталость'
+            ])]) if 'fatigue_status' in df.columns else 0
+            posture_events = len(df[df['posture_status'].isin([
+                'Bad Posture', 'Плохая', 'bad', 'Bad'
+            ])]) if 'posture_status' in df.columns else 0
             
             session_duration = total_records
             

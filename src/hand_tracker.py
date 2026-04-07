@@ -11,46 +11,79 @@ except (ImportError, Exception) as e:
 
 
 class HandTracker:
-    def __init__(self, static_image_mode=False, max_hands=1, 
-                 min_detection_confidence=0.7, min_tracking_confidence=0.5):
+    def __init__(self, static_image_mode=False, max_hands=1,
+                 min_detection_confidence=0.75, min_tracking_confidence=0.65,
+                 model_complexity=0):
+        """
+        Args:
+            model_complexity: 0 — лёгкая модель (быстро, ~5 ms/frame),
+                              1 — тяжёлая (точнее, ~15 ms/frame).
+                              Для real-time рекомендуется 0.
+            min_detection_confidence: Порог первичного обнаружения. 0.75 даёт
+                меньше ложных срабатываний, чем 0.5, но надёжнее, чем 0.9.
+            min_tracking_confidence: Порог трекинга между кадрами. 0.65
+                достаточно для стабильного удержания без лишних re-detect.
+        """
         self.max_hands = max_hands
         self.initialized = False
-        
+        self._last_results = None   # кэш последних результатов для draw_cached()
+
         if not mediapipe_available:
             print("HandTracker: MediaPipe not available, gestures disabled")
             return
-            
+
         try:
             self.mp_hands = mp.solutions.hands
             self.hands = self.mp_hands.Hands(
                 static_image_mode=static_image_mode,
                 max_num_hands=max_hands,
+                model_complexity=model_complexity,
                 min_detection_confidence=min_detection_confidence,
-                min_tracking_confidence=min_tracking_confidence
+                min_tracking_confidence=min_tracking_confidence,
             )
             self.mp_draw = mp.solutions.drawing_utils
             self.mp_draw_styles = mp.solutions.drawing_styles
             self.initialized = True
         except Exception as e:
             print(f"HandTracker init error: {e}")
-    
+
+    def draw_cached(self, frame):
+        """Нарисовать landmarks из последнего успешного кадра.
+
+        Вызывать каждый кадр, чтобы не было мигания при кратких потерях руки.
+        """
+        if not self.initialized or self._last_results is None:
+            return
+        if self._last_results.multi_hand_landmarks:
+            for hand_landmarks in self._last_results.multi_hand_landmarks:
+                self.mp_draw.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_draw_styles.get_default_hand_landmarks_style(),
+                    self.mp_draw_styles.get_default_hand_connections_style()
+                )
+
     def process_frame(self, frame, draw=True):
         """
         Обработать кадр и найти руки.
-        
+
         Args:
             frame: Кадр в формате BGR
             draw: Рисовать ли landmarks
-            
+
         Returns:
             processed_frame: Обработанный кадр
             results: Результаты детекции MediaPipe
         """
         if not self.initialized:
             return frame, None
-            
+
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(rgb_frame)
+        # Кэшируем только когда рука реально обнаружена
+        if results and results.multi_hand_landmarks:
+            self._last_results = results
         
         if draw and results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:

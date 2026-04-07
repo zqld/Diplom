@@ -63,7 +63,9 @@ class FatigueClassifier:
         if os.path.exists(self.model_path):
             self._load_model(self.model_path)
         else:
-            self._build_cnn_model()
+            # CNN model not found — skip CNN, LSTM will be used as primary classifier
+            print(f"CNN model not found at {self.model_path}, using LSTM only")
+            self.model = None
     
     def _init_lstm(self):
         """Initialize LSTM model for temporal analysis."""
@@ -87,7 +89,8 @@ class FatigueClassifier:
             print(f"TF Fatigue model loaded from {model_path}")
         except Exception as e:
             print(f"Failed to load fatigue model: {e}")
-            self._build_cnn_model()
+            # Do NOT build a random untrained CNN — LSTM will handle prediction
+            self.model = None
     
     def _build_cnn_model(self):
         """Build CNN model for fatigue classification."""
@@ -299,63 +302,56 @@ class FatigueClassifier:
         # Check yawning (from temporal features)
         yawning = temporal_features.get('yawning', False)
         
-        # Extract eye region for CNN
+        # Always update LSTM buffer — uses only EAR/MAR/head, no eye region needed
+        self._add_to_lstm_buffer(ear, mar, head_features, temporal_features)
+
+        # Try LSTM prediction (requires 30-frame buffer)
+        lstm_result = self._predict_lstm()
+
+        def _build_result(base_result, model_used):
+            base_result['ear'] = ear
+            base_result['mar'] = mar
+            base_result['blink_rate'] = blink_rate
+            base_result['model_used'] = model_used
+            base_result['microsleep_detected'] = microsleep_info['danger_level'] == 'danger'
+            base_result['microsleep_count'] = microsleep_info['microsleeps_per_minute']
+            base_result['yawning'] = yawning
+            base_result['head_droop'] = head_features.get('head_droop', 0)
+            base_result['head_tilt'] = head_features.get('head_tilt', 0)
+            base_result['temporal_features'] = temporal_features
+            fatigue_score = self._status_to_fatigue_score(base_result['status'], base_result['confidence'])
+            if self.user_profile_manager:
+                personalization = self.user_profile_manager.apply_personalization(ear, mar, blink_rate)
+                fatigue_score = int(fatigue_score * personalization.get('personal_fatigue_factor', 1.0))
+            base_result['fatigue_score'] = min(100, fatigue_score)
+            base_result['fatigue_level'] = base_result['status']
+            ear_trend = temporal_features.get('ear_trend', 0)
+            if ear_trend < -0.01:
+                base_result['trend'] = 'decreasing'
+            elif ear_trend > 0.01:
+                base_result['trend'] = 'increasing'
+            else:
+                base_result['trend'] = 'stable'
+            return base_result
+
+        # Extract eye region for CNN (optional — CNN may not be available)
         eye_region = self._extract_eye_region(frame, face_landmarks)
-        
-        # If we have valid eye region, run CNN prediction
-        if eye_region is not None:
-            # Try LSTM prediction first (uses temporal features)
-            lstm_result = self._predict_lstm()
-            
-            # Add to LSTM buffer for next prediction
-            buffer_ready = self._add_to_lstm_buffer(ear, mar, head_features, temporal_features)
-            
+
+        if eye_region is not None and self.model is not None:
             img = self._preprocess_image(eye_region)
             if img is not None:
                 cnn_result = self._predict_cnn(img)
-                cnn_result['ear'] = ear
-                cnn_result['mar'] = mar
-                cnn_result['blink_rate'] = blink_rate
-                
-                # Use LSTM result if available (better temporal analysis)
+                # LSTM overrides CNN when available (better temporal analysis)
                 if lstm_result is not None:
                     cnn_result['status'] = lstm_result['status']
                     cnn_result['confidence'] = lstm_result['confidence']
-                    cnn_result['model_used'] = 'lstm'
-                else:
-                    cnn_result['model_used'] = 'cnn'
-                
-                # Add new temporal features
-                cnn_result['microsleep_detected'] = microsleep_info['danger_level'] == 'danger'
-                cnn_result['microsleep_count'] = microsleep_info['microsleeps_per_minute']
-                cnn_result['yawning'] = yawning
-                cnn_result['head_droop'] = head_features.get('head_droop', 0)
-                cnn_result['head_tilt'] = head_features.get('head_tilt', 0)
-                cnn_result['temporal_features'] = temporal_features
-                
-                # Convert status to fatigue_score (0-100)
-                fatigue_score = self._status_to_fatigue_score(cnn_result['status'], cnn_result['confidence'])
-                
-                # Apply personalization if available
-                if self.user_profile_manager:
-                    personalization = self.user_profile_manager.apply_personalization(
-                        ear, mar, blink_rate
-                    )
-                    fatigue_score = int(fatigue_score * personalization.get('personal_fatigue_factor', 1.0))
-                
-                cnn_result['fatigue_score'] = min(100, fatigue_score)
-                cnn_result['fatigue_level'] = cnn_result['status']
-                
-                # Determine trend from temporal features
-                if temporal_features.get('ear_trend', 0) < -0.01:
-                    cnn_result['trend'] = 'decreasing'
-                elif temporal_features.get('ear_trend', 0) > 0.01:
-                    cnn_result['trend'] = 'increasing'
-                else:
-                    cnn_result['trend'] = 'stable'
-                
-                return cnn_result
-        
+                    return _build_result(cnn_result, 'lstm')
+                return _build_result(cnn_result, 'cnn')
+
+        # LSTM-only path: CNN not available but buffer is full
+        if lstm_result is not None:
+            return _build_result(lstm_result, 'lstm')
+
         # Fallback to geometric calculation
         result = self._predict_geometric(face_landmarks, ear, mar)
         result['ear'] = ear

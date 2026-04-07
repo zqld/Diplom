@@ -86,17 +86,20 @@ class PostureAnalyzer:
         Рассчитать наклон головы вбок.
         Использует асимметрию глаз и ушей.
         """
-        eye_center_x = (left_eye.x + right_eye.x) / 2
-        ear_center_x = (left_ear.x + right_ear.x) / 2
-        
-        dx = (right_ear.x - left_ear.x)
-        
-        if dx < 0.03:
+        try:
+            eye_center_x = (left_eye.x + right_eye.x) / 2
+            ear_center_x = (left_ear.x + right_ear.x) / 2
+            
+            dx = (right_ear.x - left_ear.x)
+            
+            if dx < 0.03:
+                return 0
+            
+            tilt = (eye_center_x - ear_center_x) / dx * 100
+            
+            return max(-30, min(30, tilt * 15))
+        except:
             return 0
-        
-        tilt = (eye_center_x - ear_center_x) / dx * 100
-        
-        return max(-30, min(30, tilt * 15))
     
     def _calculate_head_forward(self, nose, forehead, chin):
         """
@@ -126,31 +129,31 @@ class PostureAnalyzer:
         score = 0
         
         abs_tilt = abs(head_tilt)
-        if abs_tilt > 25:
+        if abs_tilt > 30:
             score += 50
-        elif abs_tilt > 18:
+        elif abs_tilt > 22:
             score += 35
-        elif abs_tilt > 12:
+        elif abs_tilt > 15:
             score += 20
-        elif abs_tilt > 8:
+        elif abs_tilt > 10:
             score += 10
         
-        if head_forward > 0.12:
+        if head_forward > 0.20:
             score += 50
-        elif head_forward > 0.08:
+        elif head_forward > 0.14:
             score += 35
-        elif head_forward > 0.05:
+        elif head_forward > 0.10:
             score += 20
-        elif head_forward > 0.03:
+        elif head_forward > 0.06:
             score += 10
         
-        if face_position > 0.25:
+        if face_position > 0.30:
             score += 40
-        elif face_position > 0.18:
+        elif face_position > 0.22:
             score += 25
-        elif face_position > 0.12:
+        elif face_position > 0.15:
             score += 15
-        elif face_position > 0.08:
+        elif face_position > 0.10:
             score += 5
         
         return min(100, score)

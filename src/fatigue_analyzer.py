@@ -98,7 +98,7 @@ class FatigueAnalyzer:
     def _get_ear_score(self):
         """Скор на основе EAR (открытость глаз)."""
         if len(self.ear_history) < 5:
-            return 0
+            return 25  # Neutral - not enough data yet
         
         recent_ear = list(self.ear_history)[-10:]
         avg_ear = np.mean(recent_ear)

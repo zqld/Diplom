@@ -1,85 +1,147 @@
 import sys
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QRect
-from PyQt6.QtGui import QColor, QPalette, QFont
+from PyQt6.QtWidgets import (QWidget, QLabel, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QApplication, QGraphicsOpacityEffect, QFrame)
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QFont, QCursor
 from sqlalchemy import create_engine, text
 import datetime
 
 # --- КОНФИГУРАЦИЯ ПО УМОЛЧАНИЮ ---
-# Эти настройки можно будет менять из GUI
 DEFAULT_SETTINGS = {
-    "work_limit_minutes": 45,       # Уведомление о перерыве каждые 45 мин
-    "posture_window_minutes": 3,    # Анализировать последние 3 минуты
-    "posture_bad_percent": 30,      # Если > 30% времени осанка плохая -> АЛЕРТ
-    "yawn_limit": 4,                # Если > 4 зевков за 10 минут -> АЛЕРТ
-    "yawn_window_minutes": 10       # Анализировать последние 10 минут на зевки
+    "work_limit_minutes": 45,
+    "posture_window_minutes": 3,
+    "posture_bad_percent": 30,
+    "yawn_limit": 4,
+    "yawn_window_minutes": 10
 }
 
-# --- 1. КРАСИВОЕ УВЕДОМЛЕНИЕ (TOAST) ---
+# Цветовая палитра в едином стиле приложения
+_COLORS = {
+    'bg':           '#252530',
+    'border':       '#3A3A45',
+    'text_primary': '#FFFFFF',
+    'text_muted':   '#A0A0B0',
+    'accent':       '#6B8AFE',   # перерыв / общее
+    'danger':       '#F87171',   # осанка
+    'warning':      '#FBBF24',   # усталость
+    'good':         '#4ADE80',   # pomodoro / успех
+}
+
+
+# --- 1. TOAST УВЕДОМЛЕНИЕ — единый стиль для всего приложения ---
 class ToastNotification(QWidget):
-    def __init__(self, title, message, parent=None):
+    """
+    Всплывающее уведомление в правом нижнем углу экрана.
+    accent_color — цвет левой полоски и заголовка (по умолчанию accent).
+    """
+    def __init__(self, title: str, message: str,
+                 accent_color: str = None, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | 
-                            Qt.WindowType.Tool | 
-                            Qt.WindowType.WindowStaysOnTopHint)
+        accent = accent_color or _COLORS['accent']
+
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Tool |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setFixedSize(360, 110)
 
-        # Стилизация
-        self.setFixedSize(300, 100)
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #2d2d2d;
-                border: 1px solid #444444;
-                border-left: 5px solid #007acc;
-                border-radius: 5px;
-            }
-            QLabel { color: white; border: none; }
-            QLabel#Title { font-weight: bold; font-size: 14px; color: #00aaff; }
-            QLabel#Msg { font-size: 12px; color: #cccccc; }
+        # ── Outer container (provides the rounded border + left accent stripe) ──
+        container = QFrame(self)
+        container.setGeometry(0, 0, 360, 110)
+        container.setStyleSheet(f"""
+            QFrame {{
+                background-color: {_COLORS['bg']};
+                border: 1px solid {_COLORS['border']};
+                border-left: 4px solid {accent};
+                border-radius: 12px;
+            }}
         """)
 
-        layout = QVBoxLayout(self)
-        
-        self.lbl_title = QLabel(title)
-        self.lbl_title.setObjectName("Title")
-        layout.addWidget(self.lbl_title)
-        
-        self.lbl_msg = QLabel(message)
-        self.lbl_msg.setObjectName("Msg")
-        self.lbl_msg.setWordWrap(True)
-        layout.addWidget(self.lbl_msg)
+        # ── Inner layout ──
+        root = QVBoxLayout(container)
+        root.setContentsMargins(18, 12, 14, 12)
+        root.setSpacing(5)
 
-        # Анимация появления
+        # Title row: icon-title + close button
+        title_row = QHBoxLayout()
+        title_row.setSpacing(0)
+
+        lbl_title = QLabel(title)
+        lbl_title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        lbl_title.setStyleSheet(f"color: {accent}; background: transparent; border: none;")
+        title_row.addWidget(lbl_title)
+        title_row.addStretch()
+
+        btn_close = QPushButton("×")
+        btn_close.setFixedSize(22, 22)
+        btn_close.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                color: {_COLORS['text_muted']};
+                background: transparent;
+                border: none;
+                font-size: 18px;
+                font-weight: bold;
+                padding: 0;
+            }}
+            QPushButton:hover {{ color: {_COLORS['text_primary']}; }}
+        """)
+        btn_close.clicked.connect(self._close_now)
+        title_row.addWidget(btn_close)
+        root.addLayout(title_row)
+
+        # Message
+        lbl_msg = QLabel(message)
+        lbl_msg.setFont(QFont("Segoe UI", 11))
+        lbl_msg.setWordWrap(True)
+        lbl_msg.setStyleSheet(f"color: {_COLORS['text_muted']}; background: transparent; border: none;")
+        root.addWidget(lbl_msg)
+
+        # ── Opacity animation ──
         self.opacity_effect = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacity_effect)
-        
-        self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.anim.setDuration(500)
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(1)
-        self.anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-        
-        # Таймер закрытия (через 5 секунд)
-        self.close_timer = QTimer(self)
-        self.close_timer.setInterval(5000)
-        self.close_timer.timeout.connect(self.fade_out)
+        self.opacity_effect.setOpacity(0)
+
+        self._anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self._anim.setDuration(400)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        # Auto-close timer (6 seconds visible)
+        self._close_timer = QTimer(self)
+        self._close_timer.setSingleShot(True)
+        self._close_timer.setInterval(6000)
+        self._close_timer.timeout.connect(self.fade_out)
+
+        self._closing = False
 
     def show_toast(self):
-        # Позиционирование справа внизу
         screen = QApplication.primaryScreen().availableGeometry()
-        x = screen.width() - self.width() - 20
-        y = screen.height() - self.height() - 20
+        x = screen.right()  - self.width()  - 20
+        y = screen.bottom() - self.height() - 20
         self.move(x, y)
-        
         self.show()
-        self.anim.start()
-        self.close_timer.start()
+
+        self._anim.setStartValue(0.0)
+        self._anim.setEndValue(1.0)
+        self._anim.start()
+        self._close_timer.start()
 
     def fade_out(self):
-        self.anim.setDirection(QPropertyAnimation.Direction.Backward)
-        self.anim.finished.connect(self.close)
-        self.anim.start()
+        if self._closing:
+            return
+        self._closing = True
+        self._close_timer.stop()
+        self._anim.setStartValue(self.opacity_effect.opacity())
+        self._anim.setEndValue(0.0)
+        self._anim.finished.connect(self.close)
+        self._anim.start()
+
+    def _close_now(self):
+        self._close_timer.stop()
+        self.fade_out()
 
 # --- 2. МЕНЕДЖЕР ЛОГИКИ ---
 class NotificationManager:
