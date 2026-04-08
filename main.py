@@ -237,7 +237,8 @@ class VideoThread(QThread):
         self.face_lost_time = None
         self._last_calibration_status = {"face": False, "hand": False}
         self._last_face_state = True
-        
+        self._yawn_cooldown_end = 0.0  # debounce зевка: игнорировать до этого времени
+
         self._error_count = 0
         self._max_errors = 10
         
@@ -660,8 +661,10 @@ class VideoThread(QThread):
 
                 # Генерация события (аналог FatigueProcessor, но из ML)
                 _f_event = None
-                if _yawning:
+                # ── Зевок с debounce: один зевок = одно событие (cooldown 5 сек) ──
+                if _yawning and current_time > self._yawn_cooldown_end:
                     _f_event = "Зевок"
+                    self._yawn_cooldown_end = current_time + 5.0  # 5 сек cooldown
                 elif _microsleep:
                     _f_event = "Сильная усталость"
                 elif _f_status == 'sleeping':
@@ -767,14 +770,26 @@ class VideoThread(QThread):
         # Нормализуем posture_alert: ML возвращает разные ключи и регистры.
         # posture_processor (fallback) использует 'is_bad', ML-путь — 'posture_alert',
         # а сравнение статуса должно быть case-insensitive.
+        # ИСПРАВЛЕНО: добавлен уровень posture_alert_level ('fair' vs 'bad')
         _ps = posture_data.get('posture_status', '').lower()
         _pl = posture_data.get('posture_level', '').lower()
+
         data['posture_alert'] = bool(
             posture_data.get('posture_alert', False)
             or posture_data.get('is_bad', False)
-            or _ps in ('bad', 'bad posture')
-            or _pl == 'bad'
+            or posture_data.get('pitch_alert', False)
+            or _ps in ('bad', 'bad posture', 'fair')
+            or _pl in ('bad', 'fair')
         )
+
+        # Новый ключ: уровень серьёзности проблемы с осанкой
+        # 'bad' = высокая опасность, 'fair' = предупреждение
+        if _ps in ('bad', 'bad posture') or _pl == 'bad':
+            data['posture_alert_level'] = 'bad'
+        elif _ps == 'fair' or _pl == 'fair':
+            data['posture_alert_level'] = 'fair'
+        else:
+            data['posture_alert_level'] = None
 
         # Выбор события для отображения в логе.
         # Осанка имеет приоритет (у неё 30 с кулдаун), усталость — 2 с.
@@ -806,7 +821,13 @@ class VideoThread(QThread):
         # --- DB save (every ~1s) ---
         if time.time() - self.last_save_time > 1.0:
             posture_raw = posture_data.get('posture_status', 'Good')
-            posture_db = 'Bad Posture' if posture_raw.lower() == 'bad' else posture_raw
+            posture_lower = posture_raw.lower()
+            if posture_lower == 'bad':
+                posture_db = 'Bad Posture'
+            elif posture_lower == 'fair':
+                posture_db = 'Fair Posture'
+            else:
+                posture_db = posture_raw
 
             fatigue_raw = fatigue_data.get('fatigue_status', 'Awake')
             mar_val = fatigue_data.get('mar', 0)
@@ -866,6 +887,7 @@ class MainWindow(QMainWindow):
 
         self.last_event_times = {}
         self._attention_level = 100
+        self._yawn_cooldown_end = 0.0  # debounce: до этого времени зевок игнорируется
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -1382,12 +1404,23 @@ class MainWindow(QMainWindow):
 
         pitch = data["pitch"]
 
-        if data["posture_alert"]:
+        # ИСПРАВЛЕНО: posture_alert теперь имеет уровни 'fair' и 'bad'
+        posture_alert_level = data.get('posture_alert_level')
+
+        if posture_alert_level == 'bad':
+            # Плохая осанка — красный, восклицательный знак
             self.posture_value.setText("Плохая")
             self.posture_angle.setText(f"{int(pitch)}°")
             self.posture_icon.setText("!")
             self.posture_icon.setStyleSheet(f"color: {DARK_COLORS['danger']}; font-weight: bold;")
             self.posture_value.setStyleSheet(f"color: {DARK_COLORS['danger']};")
+        elif posture_alert_level == 'fair':
+            # Среднее состояние — жёлтый предупреждающий
+            self.posture_value.setText("Средняя")
+            self.posture_angle.setText(f"{int(pitch)}°")
+            self.posture_icon.setText("⚠")
+            self.posture_icon.setStyleSheet(f"color: {DARK_COLORS['warning']}; font-weight: bold;")
+            self.posture_value.setStyleSheet(f"color: {DARK_COLORS['warning']};")
         else:
             self.posture_value.setText("Хорошая")
             self.posture_angle.setText(f"{int(pitch)}°")
@@ -1403,8 +1436,14 @@ class MainWindow(QMainWindow):
             _posture_keywords = ("осанка", "наклон", "отклонение", "голова", "поза")
             if any(kw in ev_lower for kw in _posture_keywords):
                 tracking_key = "posture_any"
-                cooldown = 30.0   # не чаще раза в 30 сек
-                color = DARK_COLORS['danger']
+                # ИСПРАВЛЕНО: разные кулдауны для 'fair' и 'bad'
+                posture_level = data.get('posture_alert_level')
+                if posture_level == 'bad':
+                    cooldown = 30.0   # плохая осанка — чаще
+                    color = DARK_COLORS['danger']
+                else:
+                    cooldown = 45.0   # средняя — реже, чтобы не спамить
+                    color = DARK_COLORS['warning']
             else:
                 tracking_key = current_event
                 cooldown = COOLDOWN_YAWING_EVENT

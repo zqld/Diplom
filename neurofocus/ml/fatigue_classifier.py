@@ -30,20 +30,20 @@ class FatigueClassifier:
         self.model_path = model_path or 'models/fatigue_cnn.keras'
         self.classes = ['awake', 'drowsy', 'sleeping']
         self.input_size = (64, 64)
-        
+
         # User profile manager for personalization
         self.user_profile_manager = user_profile_manager
-        
-        # Prediction smoothing
-        self.prediction_history = deque(maxlen=10)
-        
+
+        # Prediction smoothing (сокращено — было 10, слишком инертно)
+        self.prediction_history = deque(maxlen=5)
+
         # NEW: Temporal components
         from .blink_tracker import BlinkTracker
         from .microsleep_detector import MicrosleepDetector
         from .temporal_features import TemporalFeatureExtractor
         from .user_profile import UserProfile
         from .threshold_adapter import ThresholdAdapter
-        
+
         self.blink_tracker = BlinkTracker()
         self.microsleep_detector = MicrosleepDetector()
         self.temporal_extractor = TemporalFeatureExtractor(window_size=30)
@@ -54,13 +54,18 @@ class FatigueClassifier:
 
         # Frame buffer for LSTM (if used)
         self.frame_buffer = deque(maxlen=30)
-        
+
+        # CRITICAL: Track consecutive frames with low EAR for forced sleep override
+        self._consecutive_low_ear_frames = 0
+        self._ear_low_threshold = 0.18  # EAR ниже = глаза закрыты
+        self._ear_low_frame_threshold = 5  # кадров подряд = принудительный сон
+
         # LSTM model for temporal analysis
         self.lstm_model = None
         self.lstm_model_path = 'models/fatigue_lstm.keras'
         self._use_lstm = False
         self._init_lstm()
-        
+
         # Load or build model
         self._init_model()
 
@@ -299,8 +304,10 @@ class FatigueClassifier:
             - temporal_features: dict with temporal analysis
         """
         current_time = time.time()
-        
+
         if face_landmarks is None:
+            # Reset low EAR counter when face is lost
+            self._consecutive_low_ear_frames = 0
             result = self._unknown_result()
             result['ear'] = 0.35
             result['mar'] = 0.0
@@ -311,7 +318,7 @@ class FatigueClassifier:
             result['microsleep_detected'] = False
             result['yawning'] = False
             return result
-        
+
         # Calculate EAR and MAR
         ear = self._calculate_ear(face_landmarks)
         mar = self._calculate_mar(face_landmarks)
@@ -616,13 +623,13 @@ class FatigueClassifier:
     def _status_to_fatigue_score(self, status, confidence):
         """Convert status to fatigue score 0-100."""
         status_scores = {
-            'awake': 10,
-            'drowsy': 50,
-            'sleeping': 90,
+            'awake': 5,
+            'drowsy': 45,
+            'sleeping': 85,
             'unknown': 0
         }
         base = status_scores.get(status, 0)
-        return min(100, base + (1 - confidence) * 20)
+        return min(100, base + (1 - confidence) * 10)
 
     def _compute_geometric_confidence(self, ear: float, mar: float,
                                        blink_rate: int) -> float:
@@ -878,49 +885,52 @@ class FatigueClassifier:
                 'sanity_override': True,
             }
 
-        # ── Rule 3: EAR < 0.18 AND LSTM says "awake" → blink artifact ─────
-        # LSTM may occasionally still say "awake" despite low EAR.
-        # Check if this is a recent blink event.
+        # ── Rule 3: EAR < 0.18 AND LSTM says "awake" ──────────────────────────
+        # Различаем быстрое моргание (длится < 300мс) от реального закрытия глаз.
         if ear < 0.18 and status == 'awake':
             recent_blinks = len([
                 t for t in self.blink_tracker.blink_timestamps
-                if time.time() - t < 2.0
+                if time.time() - t < 0.3   # только очень свежие морганья (≤300мс)
             ])
-            if recent_blinks <= 1:
+            if recent_blinks >= 1:
+                # Быстрое моргание — LSTM ошибается, считаем бодрствованием
                 return {
                     'status': 'awake',
                     'confidence': 0.80,
                     'raw_scores': [0.78, 0.15, 0.07],
                     'sanity_override': True,
                 }
-            return {
-                'status': 'sleeping',
-                'confidence': min(0.85, confidence),
-                'raw_scores': raw,
-                'sanity_override': True,
-            }
-
-        # ── Rule 3b: EAR < 0.18 AND LSTM says "sleeping" → likely blink ──
-        # LSTM has no blink awareness — it sees low EAR and screams "sleeping".
-        # Check recent blink history to distinguish blink from microsleep.
-        if ear < 0.18 and status == 'sleeping':
-            recent_blinks = len([
-                t for t in self.blink_tracker.blink_timestamps
-                if time.time() - t < 2.0
-            ])
-            if recent_blinks <= 2:
-                # Part of a normal blink — override to awake
-                return {
-                    'status': 'awake',
-                    'confidence': 0.80,
-                    'raw_scores': [0.78, 0.15, 0.07],
-                    'sanity_override': True,
-                }
-            # Prolonged closure — likely real microsleep
+            # EAR < 0.18 без недавних морганий = глаза закрыты → принудительно sleeping
             return {
                 'status': 'sleeping',
                 'confidence': 0.90,
-                'raw_scores': raw,
+                'raw_scores': [0.05, 0.10, 0.85],
+                'sanity_override': True,
+            }
+
+        # ── Rule 3b: EAR < 0.18 AND LSTM says "sleeping" → проверяем длительность ──
+        # LSTM может кричать "sleeping" при обычном моргании.
+        # Различаем: моргание (200-400мс) vs микросон (>1 сек).
+        if ear < 0.18 and status == 'sleeping':
+            # Считаем consecutive frames с низким EAR
+            self._consecutive_low_ear_frames += 1
+
+            if self._consecutive_low_ear_frames < self._ear_low_frame_threshold:
+                # Ещё не достигли порога кадров — возможно моргание,
+                # но LSTM уже кричит "sleeping". Снижаем до drowsy.
+                return {
+                    'status': 'drowsy',
+                    'confidence': 0.65,
+                    'raw_scores': [0.20, 0.60, 0.20],
+                    'sanity_override': True,
+                }
+
+            # EAR < 0.18 держится >= 5 кадров (~200мс при 30fps * 5 = 1 сек)
+            # → реальный микросон/закрытые глаза
+            return {
+                'status': 'sleeping',
+                'confidence': 0.92,
+                'raw_scores': [0.03, 0.05, 0.92],
                 'sanity_override': True,
             }
 
@@ -955,6 +965,10 @@ class FatigueClassifier:
                 'raw_scores': raw,
                 'sanity_override': True,
             }
+
+        # ── Reset low EAR counter when eyes are open ──
+        if ear >= 0.18:
+            self._consecutive_low_ear_frames = 0
 
         # All checks passed — trust LSTM
         return lstm_result

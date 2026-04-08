@@ -199,16 +199,24 @@ class NotificationManager:
             
             if result:
                 total_records = len(result)
-                # В БД хранится "Bad Posture [model_name]" — сравниваем через startswith
+                # В БД хранится "Bad Posture [model_name]" или "Fair [model_name]"
                 bad_count = sum(1 for r in result if str(r[0]).startswith('Bad Posture'))
+                fair_count = sum(1 for r in result if str(r[0]).startswith('Fair'))
                 bad_percent = (bad_count / total_records) * 100
-                
+                fair_percent = (fair_count / total_records) * 100
+
                 # Если процент плохой осанки выше порога
                 if bad_percent > self.settings["posture_bad_percent"]:
                     # Кулдаун 5 минут
                     if (now - self.last_alert_time["posture"]).total_seconds() > 300:
                         self.last_alert_time["posture"] = now
                         return "Следите за осанкой", f"За последние {window_min} мин вы сутулились {int(bad_percent)}% времени."
+
+                # ИСПРАВЛЕНО: если процент средней осанки выше порога — предупреждение
+                elif fair_percent > 40:  # 40% времени в среднем положении
+                    if (now - self.last_alert_time["posture"]).total_seconds() > 420:  # 7 мин кулдаун
+                        self.last_alert_time["posture"] = now
+                        return "Следите за осанкой", f"За последние {window_min} мин ваша осанка была средней {int(fair_percent)}% времени. Выпрямитесь."
 
             # 3. АНАЛИЗ УСТАЛОСТИ (Зевки)
             window_yawn = self.settings["yawn_window_minutes"]

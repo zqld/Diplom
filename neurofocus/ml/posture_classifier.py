@@ -468,27 +468,35 @@ class PostureClassifier:
             # ── Подсчёт баллов ───────────────────────────────────
             bad_score = 0
 
-            # Боковой наклон
-            if head_tilt > 20:
+            # Боковой наклон (включая симметричное отклонение в обе стороны)
+            if head_tilt > 15:
                 bad_score += 50
-            elif head_tilt > 12:
+            elif head_tilt > 8:
                 bad_score += 28
-            elif head_tilt > 7:
+            elif head_tilt > 4:
                 bad_score += 12
 
-            # Наклон вперёд (только если pitch передан)
-            if pitch_dev > 30:
-                bad_score += 50
-            elif pitch_dev > 18:
-                bad_score += 30
-            elif pitch_dev > 10:
-                bad_score += 12
+            # Наклон вперёд/назад (pitch отклонение в любую сторону)
+            # ИСПРАВЛЕНО: пороги снижены — 15° уже 'fair', 25° уже 'bad'
+            if head_pitch is not None:
+                abs_dev = abs(float(head_pitch) - float(calibration_baseline_pitch))
+            else:
+                abs_dev = abs(pitch_dev)
+            if abs_dev > 25:
+                bad_score += 60
+            elif abs_dev > 15:
+                bad_score += 45
+            elif abs_dev > 8:
+                bad_score += 25
+            elif abs_dev > 4:
+                bad_score += 10
 
             # ── Итог ─────────────────────────────────────────────
-            if bad_score >= 42:
+            # ИСПРАВЛЕНО: пороги снижены для чувствительной реакции на 'fair'
+            if bad_score >= 35:
                 status = 'bad'
                 confidence = min(0.92, bad_score / 100.0)
-            elif bad_score >= 20:
+            elif bad_score >= 15:
                 status = 'fair'
                 confidence = 0.65
             else:
