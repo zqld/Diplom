@@ -41,12 +41,7 @@ class PostureProcessor:
                 result['posture_level'] = posture_data.get("posture_level", "good")
                 result['head_tilt'] = posture_data.get("head_tilt", 0)
                 result['head_forward'] = posture_data.get("head_forward", 0)
-                
-                result['posture_score'] = posture_data.get("posture_score", 0)
-                result['posture_level'] = posture_data.get("posture_level", "good")
-                result['head_tilt'] = posture_data.get("head_tilt", 0)
-                result['head_forward'] = posture_data.get("head_forward", 0)
-                
+
                 if posture_data.get("is_bad", False):
                     result['is_bad'] = True
                     result['posture_status'] = "Bad Posture"
@@ -93,9 +88,3 @@ class PostureProcessor:
     def set_calibration_manager(self, calibration_manager):
         """Обновить ссылку на CalibrationManager (можно вызвать после инициализации)."""
         self._calibration = calibration_manager
-
-    def reload_config(self):
-        self._config = config_manager.posture
-        self._window_size = self._config.get('window_size_seconds', 5)
-        self._time_trigger = self._config.get('posture_time_trigger', 1.0)
-        self.analyzer = PostureAnalyzer(window_size_seconds=self._window_size)

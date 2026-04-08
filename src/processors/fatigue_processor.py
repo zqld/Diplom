@@ -62,8 +62,3 @@ class FatigueProcessor:
     def reset(self):
         self.analyzer = FatigueAnalyzer(window_size_seconds=self._window_size)
         self._last_event_time = 0
-    
-    def reload_config(self):
-        self._config = config_manager.fatigue
-        self._window_size = self._config.get('window_size_seconds', 30)
-        self.analyzer = FatigueAnalyzer(window_size_seconds=self._window_size)

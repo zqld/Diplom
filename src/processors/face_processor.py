@@ -68,15 +68,8 @@ class FaceProcessor:
             
         except Exception as e:
             logger.error(f"Error in FaceProcessor: {e}")
-        
+
         return data
-    
-    def reload_config(self):
-        self._config = config_manager.face
-        self._yaw_threshold = self._config.get('yaw_threshold', 40)
-        self._pitch_offset = self._config.get('pitch_offset', 5.0)
-        self._pitch_min = self._config.get('pitch_threshold_min', 0.0)
-        self._pitch_max = self._config.get('pitch_threshold_max', 30.0)
 
 
 class EmotionProcessor:

@@ -78,3 +78,15 @@ htmlcov/
 temp/
 tmp/
 *.tmp
+
+# Локальная документация
+TECHNICAL_DOCUMENTATION*.md
+
+# Claude worktrees
+.claude/
+
+# Скрипты отладки
+db_check.py
+
+# Отчёты моделей
+models/*_report.json

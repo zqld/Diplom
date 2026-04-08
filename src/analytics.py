@@ -64,28 +64,6 @@ MODERN_COLORS = {
 }
 
 
-def setup_modern_axes(ax, title="", ylabel="", show_legend=False):
-    """Apply modern minimalist styling to axes."""
-    ax.set_title(title, color=MODERN_COLORS['text'], fontsize=12, fontweight='600', pad=12, loc='left')
-    ax.set_ylabel(ylabel, color=MODERN_COLORS['text_secondary'], fontsize=10, labelpad=8)
-    
-    ax.set_facecolor(MODERN_COLORS['background'])
-    ax.grid(True, linestyle='-', alpha=0.3, color=MODERN_COLORS['grid'], zorder=0)
-    
-    ax.tick_params(colors=MODERN_COLORS['text_secondary'], labelsize=9)
-    
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.spines['bottom'].set_visible(True)
-    ax.spines['bottom'].set_color(MODERN_COLORS['grid'])
-    ax.spines['bottom'].set_linewidth(1)
-    
-    if show_legend:
-        ax.legend(loc='upper right', frameon=True, facecolor=MODERN_COLORS['background'], 
-                  edgecolor=MODERN_COLORS['grid'], labelcolor=MODERN_COLORS['text_secondary'],
-                  fontsize=9, framealpha=1)
-
-
 # Виджет для встраивания графика в PyQt
 class MplCanvas(FigureCanvas):
     def __init__(self, parent=None, width=6, height=5, dpi=100):
