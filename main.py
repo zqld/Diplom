@@ -1669,11 +1669,15 @@ class MainWindow(QMainWindow):
         result = self.notify_manager.check_conditions()
         if result:
             title, msg = result
+            title_l = title.lower()
+            msg_l   = msg.lower()
             # Подбираем цвет акцента по теме уведомления
-            if 'осанк' in title.lower() or 'осанк' in msg.lower():
+            if 'осанк' in title_l or 'осанк' in msg_l:
                 accent = '#F87171'   # danger — осанка
-            elif 'устал' in title.lower() or 'зева' in msg.lower():
-                accent = '#FBBF24'  # warning — усталость
+            elif 'сильная' in title_l or 'сонли' in msg_l or 'сонли' in title_l:
+                accent = '#F87171'   # danger — сильная усталость
+            elif 'устал' in title_l or 'зева' in msg_l:
+                accent = '#FBBF24'  # warning — усталость / зевки
             else:
                 accent = '#6B8AFE'  # accent — перерыв/общее
             self.show_notification(title, msg, accent=accent)

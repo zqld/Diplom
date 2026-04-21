@@ -157,9 +157,10 @@ class NotificationManager:
         
         # Кулдауны (чтобы не спамить уведомлениями каждые 5 секунд)
         self.last_alert_time = {
-            "posture": datetime.datetime.min,
-            "fatigue": datetime.datetime.min,
-            "break": datetime.datetime.min
+            "posture":  datetime.datetime.min,
+            "fatigue":  datetime.datetime.min,   # зевки
+            "drowsy":   datetime.datetime.min,   # LSTM Drowsy/Sleeping
+            "break":    datetime.datetime.min
         }
 
     def update_settings(self, new_settings):
@@ -233,6 +234,36 @@ class NotificationManager:
                 if (now - self.last_alert_time["fatigue"]).total_seconds() > 600:
                     self.last_alert_time["fatigue"] = now
                     return "Обнаружена усталость", f"Вы часто зеваете ({yawn_count} раз за {window_yawn} мин). Рекомендуется проветрить помещение."
+
+            # 4. АНАЛИЗ СОНЛИВОСТИ через LSTM (Drowsy / Sleeping / Eyes Closed)
+            # Смотрим последние 5 минут: если >25% записей — сонливость/засыпание
+            drowsy_window = 5  # минут
+            thresh_drowsy = now - datetime.timedelta(minutes=drowsy_window)
+
+            sql_drowsy_total = text("""
+                SELECT COUNT(*) FROM face_logs WHERE timestamp > :thresh
+            """)
+            sql_drowsy = text("""
+                SELECT COUNT(*) FROM face_logs
+                WHERE timestamp > :thresh AND (
+                    fatigue_status LIKE 'Drowsy%'
+                    OR fatigue_status LIKE 'Sleeping%'
+                    OR fatigue_status LIKE 'Eyes Closed%'
+                )
+            """)
+            total_5m   = conn.execute(sql_drowsy_total, {"thresh": thresh_drowsy}).scalar() or 0
+            drowsy_cnt = conn.execute(sql_drowsy,       {"thresh": thresh_drowsy}).scalar() or 0
+
+            if total_5m >= 30:   # минимум ~30 секунд данных (1 запись/сек)
+                drowsy_pct = drowsy_cnt / total_5m * 100
+                if drowsy_pct > 25:
+                    if (now - self.last_alert_time["drowsy"]).total_seconds() > 600:
+                        self.last_alert_time["drowsy"] = now
+                        return (
+                            "⚠️ Сильная усталость",
+                            f"Признаки сонливости обнаружены {int(drowsy_pct)}% времени "
+                            f"за последние {drowsy_window} мин. Рекомендуется сделать перерыв."
+                        )
 
         except Exception as e:
             print(f"Ошибка анализатора: {e}")

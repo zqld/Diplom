@@ -26,7 +26,7 @@ class SoundManager:
         if self._initialized:
             return
         self._initialized = True
-        self.enabled = True
+        self.enabled = False   # звук отключён глобально
         self.volume = 0.5
         self._init_pygame()
     
