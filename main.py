@@ -1224,11 +1224,17 @@ class MainWindow(QMainWindow):
         self.notify_timer.setInterval(10000)
         self.notify_timer.timeout.connect(self.check_notifications)
         self.notify_timer.start()
-        
+
         self.session_timer = QTimer(self)
         self.session_timer.setInterval(1000)
         self.session_timer.timeout.connect(self.update_session_stats)
         self.session_timer.start()
+
+        # Периодически агрегируем данные в daily_progress (каждые 5 минут)
+        self.progress_sync_timer = QTimer(self)
+        self.progress_sync_timer.setInterval(5 * 60 * 1000)  # 5 мин
+        self.progress_sync_timer.timeout.connect(self._sync_daily_progress)
+        self.progress_sync_timer.start()
 
         self.calibration_manager = CalibrationManager()
         
@@ -1467,13 +1473,17 @@ class MainWindow(QMainWindow):
         stats_dialog = StatsWindow()
         stats_dialog.exec()
     
-    def open_progress(self):
-        # Обновляем дневной прогресс перед открытием окна
+    def _sync_daily_progress(self):
+        """Фоновая агрегация daily_progress каждые 5 минут."""
         try:
             from src.progress_tracker import ProgressTracker
             ProgressTracker().update_daily_progress()
         except Exception:
             pass
+
+    def open_progress(self):
+        # Обновляем дневной прогресс перед открытием окна
+        self._sync_daily_progress()
         from ui.progress import ProgressWindow
         progress_dialog = ProgressWindow(self)
         progress_dialog.exec()
@@ -1504,6 +1514,9 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'session_timer'):
             self.session_timer.stop()
+
+        if hasattr(self, 'progress_sync_timer'):
+            self.progress_sync_timer.stop()
 
         if hasattr(self, 'video_thread'):
             self.video_thread.stop()

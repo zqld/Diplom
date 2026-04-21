@@ -132,6 +132,31 @@ class QuickPeriodButton(QPushButton):
         self._apply_style(active)
 
 
+def _calc_avg_attention(df) -> int:
+    """
+    Вычисляет среднее внимание по периоду.
+    Использует fatigue_status (LSTM) когда возможно, иначе EAR-формулу.
+    DB хранит статусы с суффиксом модели: "Yawning [lstm]", "Drowsy [lstm]", etc.
+    """
+    if df is None or df.empty:
+        return 0
+
+    scores = []
+    for _, row in df.iterrows():
+        status = str(row.get('fatigue_status', '')).lower()
+        if 'sleeping' in status or 'eyes closed' in status:
+            scores.append(15)
+        elif 'drowsy' in status:
+            scores.append(45)
+        elif 'yawning' in status:
+            scores.append(60)
+        else:
+            ear = float(row.get('ear', 0.30))
+            scores.append(max(0, min(100, int((ear - 0.15) / 0.20 * 100))))
+
+    return int(sum(scores) / len(scores)) if scores else 0
+
+
 class StatsWindow(QDialog):
     def __init__(self):
         super().__init__()
@@ -471,7 +496,8 @@ class StatsWindow(QDialog):
                          facecolor='#4ADE80', alpha=0.12, interpolate=True)
 
         # Overlay bad posture events as vertical shading
-        bad_posture = df[df['posture_status'] == 'Bad Posture']
+        # DB хранит статусы с именем модели: "Bad Posture [face_mesh_geometric]"
+        bad_posture = df[df['posture_status'].str.startswith('Bad Posture', na=False)]
         if not bad_posture.empty:
             for _, row in bad_posture.iterrows():
                 ax1.axvspan(row['timestamp'], row['timestamp'] + datetime.timedelta(seconds=2),
@@ -486,13 +512,14 @@ class StatsWindow(QDialog):
         ax2.axhline(y=0.22, color=CHART_COLORS['threshold'], linestyle='--',
                     alpha=0.6, linewidth=1.5, label='Порог засыпания')
 
-        yawns = df[df['fatigue_status'] == 'Yawning']
+        # DB хранит статусы с именем модели: "Yawning [lstm]", "Eyes Closed [geometric]"
+        yawns = df[df['fatigue_status'].str.startswith('Yawning', na=False)]
         if not yawns.empty:
             ax2.scatter(yawns['timestamp'], yawns['ear'],
                         color='#F87171', s=70, marker='o', label=f'Зевок ({len(yawns)})',
                         zorder=5, alpha=0.9, edgecolors='#1E1E25', linewidths=1)
 
-        closed_eyes = df[df['fatigue_status'] == 'Eyes Closed']
+        closed_eyes = df[df['fatigue_status'].str.startswith('Eyes Closed', na=False)]
         if not closed_eyes.empty:
             ax2.scatter(closed_eyes['timestamp'], closed_eyes['ear'],
                         color='#FBBF24', s=60, marker='x',
@@ -505,12 +532,12 @@ class StatsWindow(QDialog):
 
         # ── Update cards & summary ──
         total_records     = len(df)
-        bad_posture_count = len(df[df['posture_status'] == 'Bad Posture'])
+        bad_posture_count = len(df[df['posture_status'].str.startswith('Bad Posture', na=False)])
         posture_percent   = (bad_posture_count / total_records * 100) if total_records > 0 else 0
         yawn_count        = len(yawns)
 
-        avg_ear       = df['ear'].mean() if len(df) > 0 else 0.3
-        avg_attention = max(0, min(100, int((avg_ear - 0.15) / 0.20 * 100)))
+        # Среднее внимание: учитываем fatigue_status (LSTM) + EAR как фолбек
+        avg_attention = _calc_avg_attention(df)
 
         self._update_cards(total_records, yawn_count, posture_percent, avg_attention)
         self._update_summary(total_records, yawn_count, posture_percent, avg_attention, start_dt, end_dt, df)
@@ -570,8 +597,8 @@ class StatsWindow(QDialog):
 
     def _update_summary(self, records, yawns, posture_pct, attention, start_dt, end_dt, df):
         duration_min = int((end_dt - start_dt).total_seconds() / 60)
-        drowsy_count = len(df[df['fatigue_status'] == 'Drowsy']) if df is not None else 0
-        eye_closed   = len(df[df['fatigue_status'] == 'Eyes Closed']) if df is not None else 0
+        drowsy_count = len(df[df['fatigue_status'].str.startswith('Drowsy', na=False)]) if df is not None else 0
+        eye_closed   = len(df[df['fatigue_status'].str.startswith('Eyes Closed', na=False)]) if df is not None else 0
 
         posture_verdict = "✅ Хорошая" if posture_pct <= 10 else ("⚠️ Требует внимания" if posture_pct <= 30 else "❌ Плохая")
         att_verdict     = "✅ Высокое" if attention >= 70 else ("⚠️ Среднее" if attention >= 40 else "❌ Низкое")

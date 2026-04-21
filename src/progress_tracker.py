@@ -61,19 +61,44 @@ class ProgressTracker:
             avg_ear = df['ear'].mean() if 'ear' in df.columns else 0
             avg_pitch = df['pitch'].mean() if 'pitch' in df.columns else 0
             
-            if 'ear' in df.columns:
-                avg_attention = max(0, min(100, int((df['ear'].mean() - 0.15) / (0.35 - 0.15) * 100)))
+            # Среднее внимание: учитываем fatigue_status (LSTM) + EAR как фолбек.
+            # DB хранит статусы с суффиксом модели: "Drowsy [lstm]", "Yawning [lstm]", etc.
+            if 'fatigue_status' in df.columns and 'ear' in df.columns:
+                scores = []
+                for _, row in df.iterrows():
+                    status = str(row.get('fatigue_status', '')).lower()
+                    if 'sleeping' in status or 'eyes closed' in status:
+                        scores.append(15)
+                    elif 'drowsy' in status:
+                        scores.append(45)
+                    elif 'yawning' in status:
+                        scores.append(60)
+                    else:
+                        ear = float(row.get('ear', 0.30))
+                        scores.append(max(0, min(100, int((ear - 0.15) / 0.20 * 100))))
+                avg_attention = int(sum(scores) / len(scores)) if scores else 0
+            elif 'ear' in df.columns:
+                avg_attention = max(0, min(100, int((df['ear'].mean() - 0.15) / 0.20 * 100)))
             else:
-                avg_attention = 100
-            
-            # Статусы усталости: ML-статусы + старые пороговые
-            fatigue_events = len(df[df['fatigue_status'].isin([
-                'Yawning', 'Eyes Closed', 'Drowsy',
-                'mild', 'moderate', 'severe', 'Засыпает', 'Усталость'
-            ])]) if 'fatigue_status' in df.columns else 0
-            posture_events = len(df[df['posture_status'].isin([
-                'Bad Posture', 'Плохая', 'bad', 'Bad'
-            ])]) if 'posture_status' in df.columns else 0
+                avg_attention = 0
+
+            # Статусы усталости: DB хранит "Yawning [lstm]", "Drowsy [lstm]", etc.
+            if 'fatigue_status' in df.columns:
+                fatigue_events = int(df['fatigue_status'].str.contains(
+                    r'Yawning|Eyes Closed|Drowsy|Sleeping|mild|moderate|severe|Засыпает|Усталость',
+                    case=False, na=False, regex=True
+                ).sum())
+            else:
+                fatigue_events = 0
+
+            # Осанка: DB хранит "Bad Posture [face_mesh_geometric]", "Fair Posture [...]"
+            if 'posture_status' in df.columns:
+                posture_events = int(df['posture_status'].str.contains(
+                    r'Bad Posture|Fair Posture|Плохая|bad posture',
+                    case=False, na=False, regex=True
+                ).sum())
+            else:
+                posture_events = 0
             
             session_duration = total_records
             
