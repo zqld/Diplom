@@ -10,6 +10,7 @@ Runs retraining off the main thread so it does not block the video loop.
 """
 
 import time
+import mediapipe
 import threading
 import numpy as np
 from collections import deque

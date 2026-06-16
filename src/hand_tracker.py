@@ -1,5 +1,17 @@
 import cv2
 import numpy as np
+import sys
+import os
+
+# Для PyInstaller frozen-режима: добавляем _internal в DLL search path
+if getattr(sys, 'frozen', False):
+    try:
+        os.add_dll_directory(sys._MEIPASS)
+        mp_pyd_dir = os.path.join(sys._MEIPASS, 'mediapipe', 'python')
+        if os.path.isdir(mp_pyd_dir):
+            os.add_dll_directory(mp_pyd_dir)
+    except Exception:
+        pass
 
 mp = None
 try:

@@ -5,9 +5,11 @@ Fully TensorFlow-based solution with temporal analysis and personalization.
 """
 
 import numpy as np
+import mediapipe
 from collections import deque
 import os
 import time
+from build_utils import resource_path
 
 
 class FatigueClassifier:
@@ -27,7 +29,7 @@ class FatigueClassifier:
     
     def __init__(self, model_path: str = None, user_profile_manager=None):
         self.model = None
-        self.model_path = model_path or 'models/fatigue_cnn.keras'
+        self.model_path = model_path or resource_path('models/fatigue_cnn.keras')
         self.classes = ['awake', 'drowsy', 'sleeping']
         self.input_size = (64, 64)
 
@@ -62,7 +64,7 @@ class FatigueClassifier:
 
         # LSTM model for temporal analysis
         self.lstm_model = None
-        self.lstm_model_path = 'models/fatigue_lstm.keras'
+        self.lstm_model_path = resource_path('models/fatigue_lstm.keras')
         self._use_lstm = False
         self._init_lstm()
 

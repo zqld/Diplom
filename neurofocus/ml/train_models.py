@@ -18,6 +18,7 @@ Usage:
 
 import os
 import sys
+import mediapipe
 import argparse
 import json
 import time

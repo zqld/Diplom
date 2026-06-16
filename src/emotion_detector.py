@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import mediapipe
 from collections import deque, Counter
 
 tensorflow_available = False

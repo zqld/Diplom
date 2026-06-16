@@ -5,6 +5,7 @@ from src.pose_estimator import HeadPoseEstimator
 from src.geometry import calculate_ear, calculate_mar
 from src.config_manager import config_manager
 from src.logger import logger
+from build_utils import resource_path
 
 
 class FaceProcessor:
@@ -82,7 +83,7 @@ class EmotionProcessor:
     def _init_model(self):
         try:
             from src.emotion_detector import EmotionDetector
-            model_path = "models/emotion_model.hdf5"
+            model_path = resource_path("models/emotion_model.hdf5")
             self.emotion_ai = EmotionDetector(model_path)
             logger.info("Emotion detector initialized")
         except Exception as e:

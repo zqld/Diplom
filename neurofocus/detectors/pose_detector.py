@@ -5,7 +5,18 @@ Pose Detector - MediaPipe Pose Landmarker wrapper.
 import cv2
 import numpy as np
 import os
+import sys
+from build_utils import resource_path
 
+# Для PyInstaller frozen-режима: добавляем _internal в DLL search path
+if getattr(sys, 'frozen', False):
+    try:
+        os.add_dll_directory(sys._MEIPASS)
+        mp_pyd_dir = os.path.join(sys._MEIPASS, 'mediapipe', 'python')
+        if os.path.isdir(mp_pyd_dir):
+            os.add_dll_directory(mp_pyd_dir)
+    except Exception:
+        pass
 
 mp = None
 mediapipe_available = False
@@ -31,7 +42,7 @@ class PoseDetector:
             return
             
         try:
-            abs_path = os.path.abspath(model_path)
+            abs_path = os.path.abspath(resource_path(model_path))
             if not os.path.exists(abs_path):
                 print(f"PoseLandmarker model not found: {abs_path}")
                 return

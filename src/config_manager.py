@@ -1,6 +1,8 @@
 import os
+import sys
 import json
 from typing import Any, Dict, Optional
+from build_utils import resource_path
 
 
 class ConfigManager:
@@ -19,11 +21,17 @@ class ConfigManager:
         self._initialized = True
         
         if config_path is None:
-            self.config_path = os.path.join(
-                os.path.dirname(__file__), 
-                "..", 
-                "config.json"
-            )
+            if getattr(sys, 'frozen', False):
+                self.config_path = os.path.join(
+                    os.path.dirname(sys.executable), 
+                    "config.json"
+                )
+            else:
+                self.config_path = os.path.join(
+                    os.path.dirname(__file__), 
+                    "..", 
+                    "config.json"
+                )
         else:
             self.config_path = config_path
         
@@ -36,8 +44,16 @@ class ConfigManager:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     self._config = json.load(f)
             else:
-                self._config = self._get_default_config()
-                self._save_config()
+                bundled_config = resource_path('config.json')
+                if os.path.exists(bundled_config) and os.path.abspath(bundled_config) != os.path.abspath(self.config_path):
+                    import shutil
+                    os.makedirs(os.path.dirname(self.config_path) or '.', exist_ok=True)
+                    shutil.copy(bundled_config, self.config_path)
+                    with open(self.config_path, 'r', encoding='utf-8') as f:
+                        self._config = json.load(f)
+                else:
+                    self._config = self._get_default_config()
+                    self._save_config()
         except Exception as e:
             print(f"Error loading config: {e}")
             self._config = self._get_default_config()

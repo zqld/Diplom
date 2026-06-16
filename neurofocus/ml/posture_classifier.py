@@ -7,7 +7,9 @@ Supports both MediaPipe and TensorFlow Hub MoveNet models.
 import os
 
 import numpy as np
+import mediapipe
 from collections import deque
+from build_utils import resource_path
 
 
 class PostureClassifier:
@@ -48,8 +50,8 @@ class PostureClassifier:
         
         if model_path:
             self._load_model(model_path)
-        elif os.path.exists('models/posture_lstm.keras'):
-            self._load_model('models/posture_lstm.keras')
+        elif os.path.exists(resource_path('models/posture_lstm.keras')):
+            self._load_model(resource_path('models/posture_lstm.keras'))
     
     def _init_tf_hub(self):
         """Initialize TensorFlow Hub MoveNet estimator."""
@@ -73,7 +75,7 @@ class PostureClassifier:
             # Try alternate LSTM model path
             lstm_alt = os.path.join(os.path.dirname(model_path or ''), 'posture_lstm.keras')
             if not os.path.exists(lstm_alt):
-                lstm_alt = 'models/posture_lstm.keras'
+                lstm_alt = resource_path('models/posture_lstm.keras')
             if os.path.exists(lstm_alt):
                 try:
                     self._load_model(lstm_alt)

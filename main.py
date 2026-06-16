@@ -1,3 +1,4 @@
+import mediapipe
 from ui.stats import StatsWindow
 import os
 import sys
@@ -16,6 +17,8 @@ from src.database import DatabaseManager
 from src.calibration_manager import CalibrationManager
 from src.sound_manager import sound_manager
 from src.logger import logger
+from gui_about import AboutDialog
+from build_utils import resource_path
 
 PITCH_OFFSET = 5.0
 PITCH_THRESHOLD = 0.0
@@ -241,7 +244,12 @@ class VideoThread(QThread):
 
         self._error_count = 0
         self._max_errors = 10
-        
+
+        # Дебаунс потери лица: переключаем face_detected=False только после
+        # FACE_LOST_DEBOUNCE последовательных кадров без лица (~0.5 сек при 30fps)
+        self._face_not_detected_frames = 0
+        self._FACE_LOST_DEBOUNCE = 15
+
         logger.info("VideoThread инициализирован")
     
     def _init_processors(self):
@@ -285,10 +293,10 @@ class VideoThread(QThread):
 
                 self.fatigue_classifier = FatigueClassifier()
                 self.posture_classifier = PostureClassifier(
-                    model_path='models/posture_model.keras'
+                    model_path=resource_path('models/posture_model.keras')
                 )
                 self.pose_detector = PoseDetector(
-                    model_path='models/pose_landmarker_lite.task'
+                    model_path=resource_path('models/pose_landmarker_lite.task')
                 )
 
                 # ML Coordinator: manages warm-up, personalized thresholds, ML blend
@@ -420,6 +428,18 @@ class VideoThread(QThread):
             except Exception as e:
                 logger.error(f"VideoThread: ошибка face_processor: {e}")
 
+            # Дебаунс потери лица: не переключаем на "нет лица" мгновенно,
+            # а только после FACE_LOST_DEBOUNCE последовательных пустых кадров.
+            # Это устраняет мерцание при закрытии лица рукой.
+            if is_face_valid:
+                self._face_not_detected_frames = 0
+                effective_face_detected = True
+            else:
+                self._face_not_detected_frames += 1
+                effective_face_detected = (
+                    self._face_not_detected_frames < self._FACE_LOST_DEBOUNCE
+                )
+
             # Determine if this frame should run heavy ML
             do_ml = (self.frame_counter % self._ml_update_interval == 0)
 
@@ -427,14 +447,18 @@ class VideoThread(QThread):
                 data = self._run_heavy_ml(
                     frame, image, face_data, is_face_valid, default_data
                 )
+                # Всегда синхронизируем face_detected с дебаунс-флагом
+                data["face_detected"] = effective_face_detected
             else:
                 # Reuse cached analytics from last full run
                 data = dict(self._last_data)
+                # face_detected обновляем КАЖДЫЙ кадр (не из кэша!) — иначе
+                # 7 некэшированных кадров будут показывать устаревший статус
+                data["face_detected"] = effective_face_detected
                 if face_data and is_face_valid:
                     data["ear"] = face_data.get("ear", self._last_data.get("ear", 0.35))
                     data["mar"] = face_data.get("mar", self._last_data.get("mar", 0.0))
                     data["pitch"] = face_data.get("pitch", self._last_data.get("pitch", 0.0))
-                    data["face_detected"] = face_data.get("detected", False)
 
             # ---- Calibration (every frame, lightweight) ----
             try:
@@ -619,6 +643,8 @@ class VideoThread(QThread):
         pose_landmarks = None
 
         if not is_face_valid or face_data is None:
+            # Обновляем кэш, чтобы не-ML кадры тоже получили актуальный face_detected=False
+            self._last_data = data
             return data
 
         ear = face_data.get('ear', 0.35)
@@ -1207,8 +1233,31 @@ class MainWindow(QMainWindow):
         self.btn_stop = DangerButton("Завершить мониторинг")
         self.btn_stop.clicked.connect(self.close_app)
         button_layout.addWidget(self.btn_stop)
-        
+
         right_layout.addWidget(button_group)
+
+        # Маленькая кнопка «О программе» — внизу правой панели
+        self.btn_about = QPushButton("ⓘ  О программе")
+        self.btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_about.setFixedHeight(28)
+        self.btn_about.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
+        self.btn_about.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {DARK_COLORS['text_muted']};
+                border: none;
+                padding: 4px 12px;
+                text-align: right;
+            }}
+            QPushButton:hover {{
+                color: {DARK_COLORS['text_secondary']};
+            }}
+            QPushButton:pressed {{
+                color: {DARK_COLORS['accent']};
+            }}
+        """)
+        self.btn_about.clicked.connect(self.open_about)
+        right_layout.addWidget(self.btn_about, alignment=Qt.AlignmentFlag.AlignRight)
 
         main_layout.addWidget(left_panel, stretch=3)
         main_layout.addWidget(right_panel, stretch=1)
@@ -1637,6 +1686,9 @@ class MainWindow(QMainWindow):
         from ui.help import GestureHelpWindow
         help_dialog = GestureHelpWindow(self)
         help_dialog.exec()
+
+    def open_about(self):
+        AboutDialog(self).exec()
     
     def on_escape_pressed(self):
         hp = getattr(self.video_thread, 'hand_processor', None)
@@ -1687,7 +1739,24 @@ class MainWindow(QMainWindow):
         self.toast.show_toast()
 
 
+def _excepthook(exc_type, exc_value, exc_tb):
+    """Глобальный обработчик необработанных исключений.
+    В PyInstaller-сборке (frozen) выводит ошибку в MessageBox и лог."""
+    import traceback
+    tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    logger.critical(f"Unhandled exception:\n{tb_text}")
+    if getattr(sys, 'frozen', False):
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(None, "NeuroFocus: Критическая ошибка",
+                f"Произошла неожиданная ошибка:\n\n{exc_value}\n\n"
+                f"Подробности сохранены в лог-файле.")
+        except Exception:
+            pass
+
+
 if __name__ == "__main__":
+    sys.excepthook = _excepthook
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     window = MainWindow()
