@@ -855,8 +855,8 @@ class FatigueClassifier:
                 'sanity_override': True,
             }
 
-        # ── Rule 2b: EAR > 0.30 → almost certainly awake ─────────
-        if ear > 0.30 and status == 'sleeping':
+        # ── Rule 2b: EAR выше ear_clearly_open → almost certainly awake ─
+        if ear > ear_clearly_open and status == 'sleeping':
             return {
                 'status': 'awake',
                 'confidence': 0.85,
@@ -864,10 +864,10 @@ class FatigueClassifier:
                 'sanity_override': True,
             }
 
-        # ── Rule 2c: EAR 0.18-0.30 AND LSTM says "sleeping" ─────
+        # ── Rule 2c: EAR 0.18 … ear_clearly_open AND LSTM says "sleeping" ─
         # Mid-range EAR cannot mean sleeping — it's either a blink
         # mid-phase or model confusion on out-of-distribution data.
-        if 0.18 <= ear <= 0.30 and status == 'sleeping':
+        if 0.18 <= ear <= ear_clearly_open and status == 'sleeping':
             recent_blinks = len([
                 t for t in self.blink_tracker.blink_timestamps
                 if time.time() - t < 3.0

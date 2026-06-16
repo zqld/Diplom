@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QScrollArea, QWidget)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
+from src.screen_utils import window_geometry
 
 try:
     from src.sound_manager import sound_manager as _sound_manager
@@ -193,7 +194,9 @@ class CalibrationDialog(QDialog):
         self._cm = calibration_manager
 
         self.setWindowTitle("Калибровка")
-        self.setFixedSize(480, 580)
+        x, y, w, h = window_geometry(0.45)
+        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(400, 450)
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{
@@ -251,7 +254,8 @@ class CalibrationDialog(QDialog):
         btn_row.addStretch()
 
         self._btn_skip = QPushButton("Пропустить шаг")
-        self._btn_skip.setFixedHeight(40)
+        self._btn_skip.setMinimumHeight(36)
+        self._btn_skip.setMaximumHeight(48)
         self._btn_skip.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_skip.setStyleSheet(f"""
             QPushButton {{
@@ -272,7 +276,9 @@ class CalibrationDialog(QDialog):
         btn_row.addWidget(self._btn_skip)
 
         self._btn_start = QPushButton("Начать")
-        self._btn_start.setFixedSize(120, 40)
+        self._btn_start.setMinimumHeight(36)
+        self._btn_start.setMaximumHeight(48)
+        self._btn_start.setMinimumWidth(100)
         self._btn_start.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_start.setStyleSheet(f"""
             QPushButton {{

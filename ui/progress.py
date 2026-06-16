@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from src.progress_tracker import ProgressTracker
+from src.screen_utils import window_geometry
 import datetime
 
 
@@ -203,7 +204,7 @@ class DayCard(QFrame):
             bar.setRange(0, 100)
             bar.setValue(int(att))
             bar.setTextVisible(False)
-            bar.setFixedWidth(110)
+            bar.setMinimumWidth(80)
             bar.setFixedHeight(8)
             bar.setStyleSheet(f"""
                 QProgressBar {{
@@ -249,7 +250,8 @@ class ProgressWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("История прогресса")
-        self.resize(960, 680)
+        x, y, w, h = window_geometry(0.7)
+        self.setGeometry(x, y, w, h)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {DARK_COLORS['bg_main']};
@@ -319,7 +321,8 @@ class ProgressWindow(QDialog):
 
         # ── Close button ────────────────────────────────────────────
         btn_close = QPushButton("Закрыть")
-        btn_close.setFixedHeight(46)
+        btn_close.setMinimumHeight(36)
+        btn_close.setMaximumHeight(52)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setStyleSheet(f"""
             QPushButton {{

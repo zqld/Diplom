@@ -1,12 +1,14 @@
 import mediapipe
 from ui.stats import StatsWindow
+from src.screen_utils import window_geometry
 import os
 import sys
 import cv2
 import time
 import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                             QHBoxLayout, QLabel, QPushButton, QFrame, QProgressBar, QListWidget)
+                             QHBoxLayout, QLabel, QPushButton, QFrame, QProgressBar, QListWidget,
+                             QSizePolicy)
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QShortcut, QImage, QPixmap, QFont, QColor, QIcon
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
@@ -19,6 +21,7 @@ from src.sound_manager import sound_manager
 from src.logger import logger
 from gui_about import AboutDialog
 from build_utils import resource_path
+from src.attention_tracker import AttentionTracker
 
 PITCH_OFFSET = 5.0
 PITCH_THRESHOLD = 0.0
@@ -52,7 +55,8 @@ class ModernButton(QPushButton):
         super().__init__(text, parent)
         self.primary = primary
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(44)
+        self.setMinimumHeight(36)
+        self.setMaximumHeight(52)
         if primary:
             self.setStyleSheet(f"""
                 QPushButton {{
@@ -95,7 +99,8 @@ class ModernPrimaryButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(48)
+        self.setMinimumHeight(40)
+        self.setMaximumHeight(56)
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['accent']};
@@ -115,12 +120,12 @@ class ModernPrimaryButton(QPushButton):
             }}
         """)
 
-
 class DangerButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(44)
+        self.setMinimumHeight(36)
+        self.setMaximumHeight(52)
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: transparent;
@@ -138,6 +143,7 @@ class DangerButton(QPushButton):
         """)
 
 
+
 class MetricCard(QFrame):
     def __init__(self, title, value="--", unit="", status="normal", parent=None):
         super().__init__(parent)
@@ -146,8 +152,10 @@ class MetricCard(QFrame):
         self.unit_text = unit
         self.status = status
         
-        self.setFixedHeight(100)
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(120)
         self.setMinimumWidth(150)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: transparent;
@@ -698,6 +706,14 @@ class VideoThread(QThread):
                 elif _f_status == 'drowsy':
                     _f_event = "Усталость"
 
+                # ── ЗАЩИТА: подавляем ложные события усталости ──
+                # 1) При нормальном EAR (>0.28) глаза точно открыты
+                # 2) При сильном наклоне головы (|pitch| > 20°) EAR может быть
+                #    неточным из-за ракурса — не считаем это усталостью
+                if _f_event in ("Сильная усталость", "Усталость"):
+                    if ear > 0.28 or abs(pitch) > 20:
+                        _f_event = None
+
                 fatigue_data = {
                     'fatigue_status': _f_status.capitalize(),
                     'fatigue_score':  ml_fatigue.get('fatigue_score', 0),
@@ -791,6 +807,30 @@ class VideoThread(QThread):
             posture_data = self.posture_processor.process(
                 face_data['landmarks'], frame.shape[1], frame.shape[0], pitch, current_time
             )
+
+        # ── Pitch-защита: при сильном наклоне вниз/вверх переопределяем
+        # любой ML-результат, даже если ML считает осанку хорошей.
+        PITCH_FWD_THRESHOLD = 25.0  # наклон вниз (смотреть на стол)
+        PITCH_UP_THRESHOLD  = -15.0 # запрокидывание назад/вверх
+        if pitch > PITCH_FWD_THRESHOLD or pitch < PITCH_UP_THRESHOLD:
+            old_level = posture_data.get('posture_level') or \
+                        posture_data.get('posture_status', '').lower()
+            old_score = posture_data.get('posture_score', 0)
+            pitch_deg = pitch
+            posture_data.update({
+                'posture_status':      'Bad',
+                'posture_score':       int(max(old_score, 85)),
+                'posture_level':       'bad',
+                'posture_alert':       True,
+                'pitch_alert':         True,
+                'model_used_posture':  posture_data.get('model_used_posture', 'pitch_guard'),
+            })
+            logger.info(
+                f"Pitch guard: pitch={pitch_deg:.1f}° (fwd>{PITCH_FWD_THRESHOLD}° "
+                f"| up<{PITCH_UP_THRESHOLD}°), "
+                f"overrode old_level={old_level}"
+            )
+
         data.update(posture_data)
 
         # Нормализуем posture_alert: ML возвращает разные ключи и регистры.
@@ -890,7 +930,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.force_close = False
         self.setWindowTitle("NeuroFocus")
-        self.setGeometry(80, 80, 1280, 800)
+        x, y, w, h = window_geometry(0.85)
+        self.setGeometry(x, y, w, h)
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {DARK_COLORS['bg_main']};
@@ -913,6 +954,7 @@ class MainWindow(QMainWindow):
 
         self.last_event_times = {}
         self._attention_level = 100
+        self.attention_tracker = AttentionTracker(window_seconds=600)
         self._yawn_cooldown_end = 0.0  # debounce: до этого времени зевок игнорируется
 
         central_widget = QWidget()
@@ -969,7 +1011,7 @@ class MainWindow(QMainWindow):
         
         video_header = QFrame()
         video_header.setStyleSheet(f"background-color: {DARK_COLORS['bg_card']};")
-        video_header.setFixedHeight(48)
+        video_header.setMinimumHeight(40)
         video_header_layout = QHBoxLayout(video_header)
         video_header_layout.setContentsMargins(16, 0, 16, 0)
         
@@ -983,7 +1025,7 @@ class MainWindow(QMainWindow):
         video_layout.addWidget(video_header)
         
         self.image_label = QLabel()
-        self.image_label.setMinimumSize(640, 480)
+        self.image_label.setMinimumSize(320, 240)
         self.image_label.setStyleSheet(f"background-color: #121215; border-radius: 0 0 16px 16px;")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         video_layout.addWidget(self.image_label, stretch=1)
@@ -991,6 +1033,8 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(video_container, stretch=1)
 
         right_panel = QFrame()
+        right_panel.setMinimumWidth(260)
+        right_panel.setMaximumWidth(450)
         right_panel.setStyleSheet(f"""
             QFrame {{
                 background-color: {DARK_COLORS['bg_card']};
@@ -1191,7 +1235,7 @@ class MainWindow(QMainWindow):
                 border-bottom: none;
             }}
         """)
-        self.event_list.setFixedHeight(130)
+        self.event_list.setMaximumHeight(200)
         self.add_log_event("Система запущена", color=DARK_COLORS['text_muted'])
         right_layout.addWidget(self.event_list)
 
@@ -1239,7 +1283,8 @@ class MainWindow(QMainWindow):
         # Маленькая кнопка «О программе» — внизу правой панели
         self.btn_about = QPushButton("ⓘ  О программе")
         self.btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_about.setFixedHeight(28)
+        self.btn_about.setMinimumHeight(24)
+        self.btn_about.setMaximumHeight(36)
         self.btn_about.setFont(QFont("Segoe UI", 10, QFont.Weight.Medium))
         self.btn_about.setStyleSheet(f"""
             QPushButton {{
@@ -1439,7 +1484,9 @@ class MainWindow(QMainWindow):
             self.emotion_card.update_status("normal")
 
         fatigue_score = data.get("fatigue_score", 0)
-        attention_level = int(max(0, min(100, 100 - fatigue_score)))
+        raw_attention = int(max(0, min(100, 100 - fatigue_score)))
+        smoothed = self.attention_tracker.update(raw_attention, time.time())
+        attention_level = int(max(0, min(100, round(smoothed))))
         
         self._attention_level = attention_level
         self.fatigue_bar.setValue(attention_level)

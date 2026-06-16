@@ -68,6 +68,7 @@ Thumbs.db
 # Локальные бэкапы
 Backup_working/
 backup/
+.backups/
 
 # Тестовые файлы
 .pytest_cache/

@@ -1,7 +1,9 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton,
-                             QFrame, QHBoxLayout, QSlider, QCheckBox)
+                             QFrame, QHBoxLayout, QSlider, QCheckBox,
+                             QScrollArea, QWidget)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from src.screen_utils import window_geometry
 from src.notifications import DEFAULT_SETTINGS
 from ui.calibration import CalibrationDialog
 
@@ -108,7 +110,9 @@ class SettingsWindow(QDialog):
     def __init__(self, current_settings=None, calibration_manager=None):
         super().__init__()
         self.setWindowTitle("Настройки")
-        self.resize(480, 700)
+        x, y, w, h = window_geometry(0.4)
+        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(380, 500)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {DARK_COLORS['bg_main']};
@@ -165,13 +169,21 @@ class SettingsWindow(QDialog):
         header.setStyleSheet(f"color: {DARK_COLORS['text_primary']};")
         main_layout.addWidget(header)
 
-        content_layout = QVBoxLayout()
-        content_layout.setSpacing(18)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent; border: none;")
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setSpacing(18)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
 
         section_mouse = QLabel("🖱️  Управление мышью")
         section_mouse.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
         section_mouse.setStyleSheet(f"color: {DARK_COLORS['accent']};")
-        content_layout.addWidget(section_mouse)
+        scroll_layout.addWidget(section_mouse)
 
         sens_row = QHBoxLayout()
         sens_row.setSpacing(16)
@@ -186,7 +198,7 @@ class SettingsWindow(QDialog):
         self.sens_value.setFixedWidth(45)
         sens_row.addWidget(self.sens_value)
         sens_row.addStretch()
-        content_layout.addLayout(sens_row)
+        scroll_layout.addLayout(sens_row)
 
         self.sens_slider = QSlider(Qt.Orientation.Horizontal)
         self.sens_slider.setRange(30, 300)
@@ -194,26 +206,26 @@ class SettingsWindow(QDialog):
         self.sens_slider.valueChanged.connect(
             lambda v: self.sens_value.setText(f"{v/100:.1f}x")
         )
-        content_layout.addWidget(self.sens_slider)
+        scroll_layout.addWidget(self.sens_slider)
 
         sens_hint = QLabel("Чем выше значение, тем меньше движений рукой нужно")
         sens_hint.setFont(QFont("Segoe UI", 11))
         sens_hint.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
-        content_layout.addWidget(sens_hint)
+        scroll_layout.addWidget(sens_hint)
 
         separator1 = QFrame()
         separator1.setFixedHeight(1)
         separator1.setStyleSheet(f"background-color: {DARK_COLORS['border']};")
-        content_layout.addWidget(separator1)
+        scroll_layout.addWidget(separator1)
 
         section_calib = QLabel("⚙️  Калибровка")
         section_calib.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
         section_calib.setStyleSheet(f"color: {DARK_COLORS['accent']};")
-        content_layout.addWidget(section_calib)
+        scroll_layout.addWidget(section_calib)
 
         self.auto_check = QCheckBox("Автоматическая калибровка при запуске")
         self.auto_check.setChecked(self.calibration.auto_calibrate if self.calibration else False)
-        content_layout.addWidget(self.auto_check)
+        scroll_layout.addWidget(self.auto_check)
 
         # ── Блок статусов калибровки ─────────────────────────────────────────
         calib_frame = QFrame()
@@ -259,11 +271,12 @@ class SettingsWindow(QDialog):
         calib_frame_layout.addLayout(row_posture)
         calib_frame_layout.addLayout(row_hand)
         calib_frame_layout.addLayout(row_zone)
-        content_layout.addWidget(calib_frame)
+        scroll_layout.addWidget(calib_frame)
 
         # ── Единственная кнопка запуска ──────────────────────────────────────
         btn_start_calib = QPushButton("🎯  Пройти калибровку")
-        btn_start_calib.setFixedHeight(42)
+        btn_start_calib.setMinimumHeight(36)
+        btn_start_calib.setMaximumHeight(48)
         btn_start_calib.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_start_calib.setStyleSheet(f"""
             QPushButton {{
@@ -280,17 +293,17 @@ class SettingsWindow(QDialog):
             }}
         """)
         btn_start_calib.clicked.connect(self.start_calibration)
-        content_layout.addWidget(btn_start_calib)
+        scroll_layout.addWidget(btn_start_calib)
 
         separator2 = QFrame()
         separator2.setFixedHeight(1)
         separator2.setStyleSheet(f"background-color: {DARK_COLORS['border']};")
-        content_layout.addWidget(separator2)
+        scroll_layout.addWidget(separator2)
 
         section_notify = QLabel("🔔  Уведомления")
         section_notify.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
         section_notify.setStyleSheet(f"color: {DARK_COLORS['accent']};")
-        content_layout.addWidget(section_notify)
+        scroll_layout.addWidget(section_notify)
 
         work_row = QHBoxLayout()
         work_row.setSpacing(16)
@@ -302,7 +315,7 @@ class SettingsWindow(QDialog):
         
         self.stepper_work = NumberStepper(1, 240, self.settings["work_limit_minutes"], " мин")
         work_row.addWidget(self.stepper_work)
-        content_layout.addLayout(work_row)
+        scroll_layout.addLayout(work_row)
 
         posture_row = QHBoxLayout()
         posture_row.setSpacing(16)
@@ -314,7 +327,7 @@ class SettingsWindow(QDialog):
         
         self.stepper_posture = NumberStepper(5, 100, self.settings["posture_bad_percent"], "%")
         posture_row.addWidget(self.stepper_posture)
-        content_layout.addLayout(posture_row)
+        scroll_layout.addLayout(posture_row)
 
         yawn_row = QHBoxLayout()
         yawn_row.setSpacing(16)
@@ -326,17 +339,21 @@ class SettingsWindow(QDialog):
         
         self.stepper_yawn = NumberStepper(1, 10, self.settings["yawn_limit"], "")
         yawn_row.addWidget(self.stepper_yawn)
-        content_layout.addLayout(yawn_row)
+        scroll_layout.addLayout(yawn_row)
 
-        content_layout.addStretch()
-        main_layout.addLayout(content_layout)
+        scroll_layout.addStretch()
+        
+        scroll.setWidget(scroll_content)
+        main_layout.addWidget(scroll, stretch=1)
 
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(16)
         btn_layout.addStretch()
         
         self.btn_cancel = QPushButton("Отмена")
-        self.btn_cancel.setFixedSize(120, 46)
+        self.btn_cancel.setMinimumHeight(36)
+        self.btn_cancel.setMaximumHeight(52)
+        self.btn_cancel.setMinimumWidth(100)
         self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_cancel.setStyleSheet(f"""
             QPushButton {{
@@ -356,7 +373,9 @@ class SettingsWindow(QDialog):
         btn_layout.addWidget(self.btn_cancel)
 
         self.btn_save = QPushButton("Сохранить")
-        self.btn_save.setFixedSize(130, 46)
+        self.btn_save.setMinimumHeight(36)
+        self.btn_save.setMaximumHeight(52)
+        self.btn_save.setMinimumWidth(100)
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.setStyleSheet(f"""
             QPushButton {{

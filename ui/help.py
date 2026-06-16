@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QFrame, QHBoxLayout
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QFrame, QHBoxLayout, QScrollArea, QWidget
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from src.screen_utils import window_geometry
 
 
 DARK_COLORS = {
@@ -20,7 +21,9 @@ class GestureHelpWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Управление жестами")
-        self.setFixedSize(520, 620)
+        x, y, w, h = window_geometry(0.45)
+        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(400, 450)
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{
@@ -38,6 +41,17 @@ class GestureHelpWindow(QDialog):
         header.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
         header.setStyleSheet(f"color: {DARK_COLORS['text_primary']};")
         layout.addWidget(header)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(20)
         
         gestures_frame = QFrame()
         gestures_frame.setStyleSheet(f"""
@@ -85,7 +99,7 @@ class GestureHelpWindow(QDialog):
             row.addStretch()
             gestures_layout.addLayout(row)
         
-        layout.addWidget(gestures_frame)
+        scroll_layout.addWidget(gestures_frame)
         
         shortcuts_frame = QFrame()
         shortcuts_frame.setStyleSheet(f"""
@@ -125,7 +139,7 @@ class GestureHelpWindow(QDialog):
             row.addStretch()
             shortcuts_layout.addLayout(row)
         
-        layout.addWidget(shortcuts_frame)
+        scroll_layout.addWidget(shortcuts_frame)
         
         tips_frame = QFrame()
         tips_frame.setStyleSheet(f"""
@@ -157,10 +171,15 @@ class GestureHelpWindow(QDialog):
             lbl.setStyleSheet(f"color: {DARK_COLORS['text_muted']}; background: transparent;")
             tips_layout.addWidget(lbl)
 
-        layout.addWidget(tips_frame)
+        scroll_layout.addWidget(tips_frame)
+        scroll_layout.addStretch()
+        
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, stretch=1)
         
         btn_close = QPushButton("Закрыть")
-        btn_close.setFixedHeight(46)
+        btn_close.setMinimumHeight(36)
+        btn_close.setMaximumHeight(52)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setStyleSheet(f"""
             QPushButton {{

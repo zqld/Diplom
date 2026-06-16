@@ -4,6 +4,7 @@ from PyQt6.QtCore import Qt, QDateTime
 from PyQt6.QtGui import QFont
 from src.analytics import AnalyticsEngine, MplCanvas
 from src.data_exporter import DataExporter
+from src.screen_utils import window_geometry
 import pandas as pd
 import matplotlib.dates as mdates
 import datetime
@@ -161,7 +162,8 @@ class StatsWindow(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Аналитика сессии")
-        self.resize(1320, 860)
+        x, y, w, h = window_geometry(0.85)
+        self.setGeometry(x, y, w, h)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {DARK_COLORS['bg_main']};
@@ -267,7 +269,8 @@ class StatsWindow(QDialog):
 
         # ── RIGHT PANEL ───────────────────────────────────────────────
         right_panel = QFrame()
-        right_panel.setFixedWidth(290)
+        right_panel.setMinimumWidth(240)
+        right_panel.setMaximumWidth(400)
         right_panel.setStyleSheet(f"""
             QFrame {{
                 background-color: {DARK_COLORS['bg_card']};

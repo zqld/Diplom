@@ -83,35 +83,43 @@ class PostureAnalyzer:
     
     def _calculate_head_tilt(self, left_ear, right_ear, left_eye, right_eye):
         """
-        Рассчитать наклон головы вбок.
-        Использует асимметрию глаз и ушей.
+        Рассчитать наклон головы вбок (градусы).
+        Использует угол линии глаз относительно линии ушей.
         """
         try:
             eye_center_x = (left_eye.x + right_eye.x) / 2
             ear_center_x = (left_ear.x + right_ear.x) / 2
-            
-            dx = (right_ear.x - left_ear.x)
-            
+            dx = right_ear.x - left_ear.x
+
             if dx < 0.03:
                 return 0
-            
-            tilt = (eye_center_x - ear_center_x) / dx * 100
-            
-            return max(-30, min(30, tilt * 15))
+
+            # Наклон = смещение центра глаз относительно центра ушей
+            # в процентах от ширины головы, затем маппинг в градусы
+            tilt_pct = (eye_center_x - ear_center_x) / dx
+            return float(np.clip(tilt_pct * 45, -30.0, 30.0))
         except:
             return 0
-    
+
     def _calculate_head_forward(self, nose, forehead, chin):
         """
-        Рассчитать выдвижение головы вперёд.
-        Использует соотношение высоты лица к его ширине.
+        Рассчитать выдвижение/наклон головы вперёд.
+        Использует вертикальное смещение носа относительно центра лица.
         """
-        face_height = chin.y - forehead.y
-        nose_x_deviation = abs(nose.x - 0.5)
-        
-        forward_score = nose_x_deviation + (0.4 - face_height) * 0.3
-        
-        return max(0, forward_score)
+        try:
+            face_height = chin.y - forehead.y
+            if face_height < 0.05:
+                return 0
+            # Центр лица по вертикали
+            face_center_y = (forehead.y + chin.y) / 2
+            # Насколько нос смещён вниз от центра (чем больше наклон вперёд,
+            # тем ниже нос относительно центра лица)
+            nose_offset = (nose.y - face_center_y) / face_height
+            # Норма: нос чуть выше центра (~-0.05). Отклонение > 0 = наклон вперёд
+            forward_score = max(0, nose_offset + 0.05)
+            return float(forward_score)
+        except:
+            return 0
     
     def _calculate_face_position(self, face_center_x, face_center_y):
         """
@@ -169,7 +177,7 @@ class PostureAnalyzer:
             is_bad = True
         elif score >= 30:
             level = 'fair'
-            is_bad = True
+            is_bad = False
         else:
             level = 'good'
             is_bad = False

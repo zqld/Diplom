@@ -29,28 +29,22 @@ class FatigueProcessor:
             result['fatigue_level'] = fatigue_data.get("fatigue_level", "normal")
             result['fatigue_status'] = fatigue_data.get("fatigue_level", "normal").capitalize()
             
-            fatigue_event = self.analyzer.get_fatigue_event(current_time)
-            
-            if current_time - self._last_event_time < self._cooldown:
-                result['cooldown_active'] = True
-            
             if mar > self._config.get('mar_threshold_yawn', 0.6):
-                result['event'] = "Зевок"
-                result['fatigue_status'] = "Yawning"
                 if current_time - self._last_event_time >= self._cooldown:
+                    result['event'] = "Зевок"
+                    result['fatigue_status'] = "Yawning"
                     self._last_event_time = current_time
-                    
-            elif fatigue_data["fatigue_level"] == "severe":
-                result['event'] = "Сильная усталость"
-                result['fatigue_status'] = "Fatigued"
-                
-            elif fatigue_data["fatigue_level"] == "moderate":
-                result['event'] = "Усталость"
-                result['fatigue_status'] = "Tired"
-                
-            elif fatigue_data["fatigue_level"] == "mild":
-                result['event'] = "Лёгкая усталость"
-                result['fatigue_status'] = "Mild"
+            else:
+                fatigue_event = self.analyzer.get_fatigue_event(current_time)
+                if fatigue_event is not None:
+                    result['event'] = fatigue_event
+                    result['fatigue_status'] = fatigue_event
+                    if fatigue_event == "Сильная усталость":
+                        result['fatigue_status'] = "Fatigued"
+                    elif fatigue_event == "Умеренная усталость":
+                        result['fatigue_status'] = "Tired"
+                    elif fatigue_event == "Лёгкая усталость (снижение)":
+                        result['fatigue_status'] = "Mild"
             
             logger.debug(f"Fatigue: level={result['fatigue_level']}, score={result['fatigue_score']}")
             

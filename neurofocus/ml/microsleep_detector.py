@@ -20,8 +20,16 @@ class MicrosleepDetector:
         self.microsleep_times: deque = deque(maxlen=30)
 
     def update(self, ear: float, current_time: float):
-        t = self.threshold
-        if ear < t:
+        # Sanity: если EAR > 0.22 — глаза точно открыты
+        if ear > 0.22:
+            if self._eyes_closed_since is not None:
+                duration = current_time - self._eyes_closed_since
+                if duration >= self.min_duration:
+                    self.microsleep_times.append(current_time)
+            self._eyes_closed_since = None
+            return
+
+        if ear < self.threshold:
             if self._eyes_closed_since is None:
                 self._eyes_closed_since = current_time
         else:

@@ -162,6 +162,12 @@ class FatigueAnalyzer:
             penalty = 1.0 - _ear_to_score_exponential(ear)
             fatigue_score = max(fatigue_score, 60.0 + 25.0 * penalty)
 
+        # ── ЗАЩИТА: при нормальном EAR усталость не может быть высокой ──
+        # Если EAR > 0.28 (глаза явно открыты), принудительно ограничиваем
+        # fatigue_score, чтобы уровень не превысил "mild" (< 50).
+        if ear > 0.28:
+            fatigue_score = min(fatigue_score, 45.0)
+
         fatigue_level, trend = self._analyze_fatigue_state(fatigue_score)
 
         return {
@@ -410,13 +416,25 @@ class FatigueAnalyzer:
     def _calculate_raw_score_for_event(self) -> float:
         """Пересчитать скор для event-логики (0–100)."""
         w = self.weights
-        return min(100.0, max(0.0, (
+        score = min(100.0, max(0.0, (
             w["ear"] * self._get_ear_score() +
             w["mar"] * self._get_mar_score() +
             w["blink"] * self._get_blink_score() +
             w["emotion"] * self._get_emotion_score() +
             w["trend"] * self._get_trend_score()
         ) * 100.0))
+        # ── Мгновенный штраф при низком EAR (аналогично update) ──
+        if len(self.ear_history) > 0:
+            ear = self.ear_history[-1]
+            if ear <= EAR_CLOSED_THRESHOLD:
+                score = max(score, 85.0)
+            elif ear < EAR_CRITICAL_THRESHOLD:
+                penalty = 1.0 - _ear_to_score_exponential(ear)
+                score = max(score, 60.0 + 25.0 * penalty)
+            # ── Защита: при нормальном EAR усталость не может быть высокой ──
+            if ear > 0.28:
+                score = min(score, 45.0)
+        return score
 
     def get_status_text(self) -> str:
         """Текстовое описание текущего состояния."""

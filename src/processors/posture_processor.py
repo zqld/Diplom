@@ -59,8 +59,8 @@ class PostureProcessor:
                     if current_time - self._last_event_time >= self._cooldown:
                         self._last_event_time = current_time
             
-            pitch_min = config_manager.face.get('pitch_threshold_min', -5.0)
-            pitch_max = config_manager.face.get('pitch_threshold_max', 35.0)
+            pitch_min = config_manager.face.get('pitch_threshold_min', -20.0)
+            pitch_max = config_manager.face.get('pitch_threshold_max', 25.0)
             if pitch < pitch_min or pitch > pitch_max:
                 if self._posture_start_time is None:
                     self._posture_start_time = current_time

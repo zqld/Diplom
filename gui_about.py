@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton,
                              QFrame, QHBoxLayout, QTextEdit)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QTextOption
+from src.screen_utils import window_geometry
 from build_utils import resource_path
 
 
@@ -79,7 +80,9 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("О программе")
-        self.setFixedSize(540, 420)
+        x, y, w, h = window_geometry(0.4)
+        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(400, 350)
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{
@@ -169,7 +172,9 @@ class AboutDialog(QDialog):
         button_layout.addStretch()
 
         btn_close = QPushButton("Закрыть")
-        btn_close.setFixedSize(120, 40)
+        btn_close.setMinimumHeight(36)
+        btn_close.setMaximumHeight(48)
+        btn_close.setMinimumWidth(100)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
         btn_close.setStyleSheet(f"""

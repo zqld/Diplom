@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton, QFrame, QHBoxLayout)
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
+from src.screen_utils import window_geometry
 import os
 
 
@@ -28,7 +29,9 @@ class PomodoroTimer(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🍅 Pomodoro")
-        self.setFixedSize(360, 460)
+        x, y, w, h = window_geometry(0.3)
+        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(300, 380)
         self.setModal(False)
         self.setStyleSheet(f"""
             QDialog {{
@@ -271,7 +274,8 @@ class PomodoroTimer(QDialog):
         buttons_layout.addWidget(self.btn_reset)
         
         self.btn_toggle = QPushButton("▶ Старт")
-        self.btn_toggle.setFixedHeight(44)
+        self.btn_toggle.setMinimumHeight(36)
+        self.btn_toggle.setMaximumHeight(52)
         self.btn_toggle.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['accent']};
