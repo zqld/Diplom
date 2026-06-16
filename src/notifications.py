@@ -1,4 +1,6 @@
 import sys
+import json
+import os
 from PyQt6.QtWidgets import (QWidget, QLabel, QVBoxLayout, QHBoxLayout,
                              QPushButton, QApplication, QGraphicsOpacityEffect, QFrame)
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
@@ -14,6 +16,7 @@ DEFAULT_SETTINGS = {
     "yawn_limit": 4,
     "yawn_window_minutes": 10
 }
+SETTINGS_PATH = os.path.join("data", "settings.json")
 
 # Цветовая палитра в едином стиле приложения
 _COLORS = {
@@ -151,6 +154,7 @@ class NotificationManager:
         
         # Настройки
         self.settings = DEFAULT_SETTINGS.copy()
+        self.load_settings()
         
         # Время начала работы (для таймера перерыва)
         self.session_start = datetime.datetime.now()
@@ -163,9 +167,32 @@ class NotificationManager:
             "break":    datetime.datetime.min
         }
 
+    def load_settings(self):
+        """Загрузить настройки из data/settings.json (мерж с DEFAULT_SETTINGS)."""
+        try:
+            if os.path.exists(SETTINGS_PATH):
+                with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                # Обновляем только те ключи, что есть в DEFAULT_SETTINGS
+                for k in DEFAULT_SETTINGS:
+                    if k in saved:
+                        self.settings[k] = saved[k]
+        except Exception as e:
+            print(f"Ошибка загрузки настроек: {e}")
+
+    def save_settings(self):
+        """Сохранить текущие настройки в data/settings.json."""
+        try:
+            os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+            with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Ошибка сохранения настроек: {e}")
+
     def update_settings(self, new_settings):
-        """Обновление настроек из GUI"""
+        """Обновление настроек из GUI + автосохранение."""
         self.settings.update(new_settings)
+        self.save_settings()
 
     def check_conditions(self):
         """

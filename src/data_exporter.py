@@ -1,7 +1,10 @@
 import os
 import csv
+import logging
 from datetime import datetime
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 class DataExporter:
@@ -10,22 +13,31 @@ class DataExporter:
         self.exports_dir = os.path.join(os.path.dirname(db_path), "exports")
         os.makedirs(self.exports_dir, exist_ok=True)
     
-    def export_to_csv(self, start_date=None, end_date=None, filename=None):
+    def export_to_csv(self, start_date=None, end_date=None, filename=None, filepath=None):
+        """
+        Экспорт данных в CSV.
+        
+        Если передан filepath (полный путь от QFileDialog) — сохраняет туда.
+        Иначе — в self.exports_dir с автогенерированным именем.
+        """
         try:
             df = self._load_data(start_date, end_date)
             if df is None or df.empty:
-                return None, "Нет данных для экспорта"
+                return None, "Нет данных за выбранный период"
             
-            if filename is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"neurofocus_export_{timestamp}.csv"
+            if filepath:
+                target = filepath
+            else:
+                if filename is None:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"neurofocus_export_{timestamp}.csv"
+                target = os.path.join(self.exports_dir, filename)
             
-            filepath = os.path.join(self.exports_dir, filename)
-            df.to_csv(filepath, index=False, encoding='utf-8-sig')
-            
-            return filepath, f"Экспортировано {len(df)} записей"
+            df.to_csv(target, index=False, encoding='utf-8-sig')
+            return target, f"Экспортировано {len(df)} записей"
         
         except Exception as e:
+            logger.exception("Ошибка экспорта CSV")
             return None, f"Ошибка экспорта: {str(e)}"
     
     def export_to_excel(self, start_date=None, end_date=None, filename=None):
@@ -57,7 +69,7 @@ class DataExporter:
             
             conn = sqlite3.connect(self.db_path)
             
-            query = "SELECT * FROM monitoring_log"
+            query = "SELECT * FROM face_logs"
             params = []
             
             if start_date:
@@ -80,6 +92,7 @@ class DataExporter:
             return df
         
         except Exception:
+            logger.exception("Ошибка загрузки данных из БД")
             return None
     
     def _generate_summary(self, df):

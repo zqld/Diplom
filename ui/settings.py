@@ -202,10 +202,10 @@ class SettingsWindow(QDialog):
 
         self.sens_slider = QSlider(Qt.Orientation.Horizontal)
         self.sens_slider.setRange(30, 300)
-        self.sens_slider.setValue(int((self.calibration.sensitivity if self.calibration else 1.0) * 100))
         self.sens_slider.valueChanged.connect(
             lambda v: self.sens_value.setText(f"{v/100:.1f}x")
         )
+        self.sens_slider.setValue(int((self.calibration.sensitivity if self.calibration else 1.0) * 100))
         scroll_layout.addWidget(self.sens_slider)
 
         sens_hint = QLabel("Чем выше значение, тем меньше движений рукой нужно")

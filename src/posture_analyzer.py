@@ -15,8 +15,9 @@ class PostureAnalyzer:
     - Face confidence: насколько лицо находится в центре кадра
     """
     
-    def __init__(self, window_size_seconds=5):
+    def __init__(self, window_size_seconds=5, bad_threshold=60):
         self.window_size = window_size_seconds
+        self._bad_threshold = bad_threshold
         
         self.head_tilt_history = deque(maxlen=50)
         self.head_forward_history = deque(maxlen=50)
@@ -169,13 +170,14 @@ class PostureAnalyzer:
     def _analyze_posture_state(self, head_tilt, head_forward, face_position):
         """
         Проанализировать состояние осанки.
+        Порог 'bad' настраивается через self._bad_threshold (по умолчанию 60).
         """
         score = self._calculate_posture_score(head_tilt, head_forward, face_position)
         
-        if score >= 60:
+        if score >= self._bad_threshold:
             level = 'bad'
             is_bad = True
-        elif score >= 30:
+        elif score >= self._bad_threshold * 0.5:
             level = 'fair'
             is_bad = False
         else:

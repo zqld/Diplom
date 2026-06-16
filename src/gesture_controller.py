@@ -94,7 +94,7 @@ class GestureController:
         self._last_click_time  = 0.0
         self._click_cooldown   = 0.45   # сек между кликами
         self._last_scroll_time = 0.0
-        self._scroll_cooldown  = 0.12   # сек между тиками скролла
+        self._scroll_cooldown  = 0.02   # сек между тиками скролла
 
     # ── Публичный API ─────────────────────────────────────────────────────────
     def enable(self):
@@ -169,14 +169,31 @@ class GestureController:
 
         # ── 2. Маппирование активной зоны → экран ──────────────────────────
         # Если зона откалибрована — используем личные границы пользователя.
-        # Иначе: вычисляем симметричный margin из sensitivity.
+        # Иначе: вычисляем симметричный margin из чувствительности.
         if (self.calibration and
                 getattr(self.calibration, 'gesture_zone', {}).get('calibrated')):
             gz = self.calibration.gesture_zone
             zone_x0 = gz['x_min']
+            zone_x1 = gz['x_max']
             zone_y0 = gz['y_min']
-            zone_w  = max(0.01, gz['x_max'] - gz['x_min'])
-            zone_h  = max(0.01, gz['y_max'] - gz['y_min'])
+            zone_y1 = gz['y_max']
+            zone_w  = max(0.02, zone_x1 - zone_x0)
+            zone_h  = max(0.02, zone_y1 - zone_y0)
+
+            norm_x = max(0.0, min(1.0, (lm_x - zone_x0) / zone_w))
+            norm_y = max(0.0, min(1.0, (lm_y - zone_y0) / zone_h))
+
+            target_x = norm_x * self.screen_width
+            target_y = norm_y * self.screen_height
+
+            # GAIN: чувствительность растягивает курсор от центра экрана.
+            # sensitivity=1 → как есть; sensitivity=3 → в 3x быстрее.
+            cx = self.screen_width  / 2.0
+            cy = self.screen_height / 2.0
+            target_x = cx + (target_x - cx) * self._sensitivity
+            target_y = cy + (target_y - cy) * self._sensitivity
+            target_x = max(0.0, min(self.screen_width,  target_x))
+            target_y = max(0.0, min(self.screen_height, target_y))
         else:
             margin  = max(0.04, self._base_margin / self._sensitivity)
             zone_x0 = margin
@@ -184,11 +201,11 @@ class GestureController:
             zone_w  = max(0.01, 1.0 - 2 * margin)
             zone_h  = max(0.01, 1.0 - 2 * margin)
 
-        norm_x = max(0.0, min(1.0, (lm_x - zone_x0) / zone_w))
-        norm_y = max(0.0, min(1.0, (lm_y - zone_y0) / zone_h))
+            norm_x = max(0.0, min(1.0, (lm_x - zone_x0) / zone_w))
+            norm_y = max(0.0, min(1.0, (lm_y - zone_y0) / zone_h))
 
-        target_x = norm_x * self.screen_width
-        target_y = norm_y * self.screen_height
+            target_x = norm_x * self.screen_width
+            target_y = norm_y * self.screen_height
 
         # ── 3. Защита от выбросов (outlier rejection) ──────────────────────
         # Если целевая позиция прыгает дальше порога — два случая:
@@ -244,6 +261,15 @@ class GestureController:
         confirmed = self._confirm_gesture()
         self.current_gesture = confirmed
 
+        # ── 6b. Заморозка курсора при жестах клика ─────────────────────────
+        # При сжатии в кулак (или показе index+pinky) рука может дрогнуть
+        # или сместиться. Фиксируем позицию на последнем известном положении,
+        # чтобы не кликнуть в другом месте — даже до подтверждения жеста.
+        if raw_gesture in (self.GESTURE_LEFT_CLICK, self.GESTURE_RIGHT_CLICK):
+            new_x, new_y = self.prev_x, self.prev_y
+            final_x = int(self.prev_x)
+            final_y = int(self.prev_y)
+
         # ── 7. Выполнение действия ─────────────────────────────────────────
         if confirmed == self.GESTURE_CURSOR:
             pyautogui.moveTo(final_x, final_y, _pause=False)
@@ -262,7 +288,7 @@ class GestureController:
 
         elif confirmed == self.GESTURE_SCROLL_UP:
             if now - self._last_scroll_time > self._scroll_cooldown:
-                pyautogui.scroll(3, _pause=False)
+                pyautogui.scroll(20, _pause=False)
                 self._last_scroll_time = now
             # Движение мыши тоже обновляем
             self.prev_x = new_x
@@ -270,7 +296,7 @@ class GestureController:
 
         elif confirmed == self.GESTURE_SCROLL_DOWN:
             if now - self._last_scroll_time > self._scroll_cooldown:
-                pyautogui.scroll(-3, _pause=False)
+                pyautogui.scroll(-20, _pause=False)
                 self._last_scroll_time = now
             self.prev_x = new_x
             self.prev_y = new_y

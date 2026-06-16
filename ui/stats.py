@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
-                             QFrame, QDateTimeEdit, QWidget, QSizePolicy)
+                             QFrame, QDateTimeEdit, QWidget, QSizePolicy, QFileDialog)
 from PyQt6.QtCore import Qt, QDateTime
 from PyQt6.QtGui import QFont
 from src.analytics import AnalyticsEngine, MplCanvas
@@ -626,8 +626,16 @@ class StatsWindow(QDialog):
         from PyQt6.QtWidgets import QMessageBox
         start_dt = self.dt_start.dateTime().toPyDateTime()
         end_dt   = self.dt_end.dateTime().toPyDateTime()
+
+        # Диалог выбора пути сохранения
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить CSV", "neurofocus_export.csv",
+            "CSV Files (*.csv)")
+        if not save_path:
+            return  # пользователь отменил
+
         exporter = DataExporter()
-        filepath, message = exporter.export_to_csv(start_dt, end_dt)
+        filepath, message = exporter.export_to_csv(start_dt, end_dt, filepath=save_path)
         msg = QMessageBox(self)
         msg.setWindowTitle("Экспорт данных")
         msg.setStyleSheet(f"""

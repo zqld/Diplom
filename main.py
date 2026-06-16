@@ -340,6 +340,12 @@ class VideoThread(QThread):
                 self.posture_processor.set_calibration_manager(calibration_manager)
         except Exception as e:
             logger.error(f"Ошибка передачи calibration_manager в PostureProcessor: {e}")
+        # Передаём calibration_manager в FatigueProcessor для калибровки EAR/MAR
+        try:
+            if hasattr(self, 'fatigue_processor') and self.fatigue_processor:
+                self.fatigue_processor.set_calibration_manager(calibration_manager)
+        except Exception as e:
+            logger.error(f"Ошибка передачи calibration_manager в FatigueProcessor: {e}")
     
     def _get_calibration_overlay(self, frame):
         if not self.calibration_manager:
@@ -1670,6 +1676,16 @@ class MainWindow(QMainWindow):
             hp = getattr(self.video_thread, 'hand_processor', None)
             if hp and hasattr(hp, 'gesture_controller') and hp.gesture_controller:
                 hp.gesture_controller.set_sensitivity(sensitivity)
+            # Применяем лимит зевков к FatigueProcessor
+            fp = getattr(self.video_thread, 'fatigue_processor', None)
+            if fp:
+                yawn_limit = dialog.result_settings.get('yawn_limit', 4)
+                fp.set_yawn_limit(yawn_limit)
+            # Применяем чувствительность осанки к PostureProcessor
+            pp = getattr(self.video_thread, 'posture_processor', None)
+            if pp:
+                posture_bad_percent = dialog.result_settings.get('posture_bad_percent', 30)
+                pp.set_posture_sensitivity(posture_bad_percent)
             self.show_notification("Настройки", "Параметры обновлены")
     
     def toggle_analysis_pause(self):

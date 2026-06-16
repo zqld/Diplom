@@ -1,17 +1,17 @@
 {
   "face_calibrated": true,
-  "face_ear": 0.5133842459817377,
-  "face_mar": 0.001265764874374973,
-  "face_pitch": 15.34898169810511,
+  "face_ear": 0.48252699766143203,
+  "face_mar": 0.005505018848263775,
+  "face_pitch": 12.300759286190234,
   "hand_calibrated": true,
-  "hand_size": 0.3746791545217961,
+  "hand_size": 0.47249193319337,
   "auto_calibrate": true,
-  "sensitivity": 0.3,
+  "sensitivity": 1.04,
   "posture_calibrated": true,
-  "posture_pitch": 16.017687716168545,
+  "posture_pitch": 13.06827285168443,
   "gesture_zone_calibrated": true,
-  "gz_x_min": 0.2347,
-  "gz_y_min": 0.3517,
-  "gz_x_max": 0.7455,
-  "gz_y_max": 0.8456
+  "gz_x_min": 0.1574,
+  "gz_y_min": 0.2459,
+  "gz_x_max": 0.8892,
+  "gz_y_max": 0.6992
 }

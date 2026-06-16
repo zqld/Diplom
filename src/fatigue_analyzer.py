@@ -52,25 +52,25 @@ def _sigmoid(value: float, center: float, slope: float) -> float:
     return float(1.0 / (1.0 + np.exp(-slope * (value - center))))
 
 
-def _ear_to_score_exponential(ear: float) -> float:
+def _ear_to_score_exponential(ear: float,
+                               ear_open: float = 0.28,
+                               ear_closed: float = 0.18) -> float:
     """
     EAR → [0, 1] через экспоненциальную функцию.
 
-    EAR >= 0.28 → score = 0.0  (глаза открыты, усталости нет)
-    EAR = 0.22  → score ≈ 0.5  (начало усталости)
-    EAR <= 0.18 → score → 1.0  (глаза закрыты, сильная усталость)
+    EAR >= ear_open → score = 0.0  (глаза открыты, усталости нет)
+    EAR = ear_critical → score ≈ 0.5  (начало усталости)
+    EAR <= ear_closed → score → 1.0  (глаза закрыты, сильная усталость)
 
-    Формула: score = 1 - exp(-rate * (EAR_threshold - EAR))
+    Параметры ear_open / ear_closed могут быть скорректированы калибровкой.
     """
-    if ear >= 0.28:
+    if ear >= ear_open:
         return 0.0
-    if ear <= EAR_CLOSED_THRESHOLD:
+    if ear <= ear_closed:
         return 1.0
-    # Экспоненциальное нарастание от 0.18 до 0.28
-    score = 1.0 - np.exp(-_EAR_EXPONENTIAL_RATE * (0.28 - ear))
-    # Нормализуем к [0, 1] в этом диапазоне
-    max_score_at_028 = 1.0 - np.exp(-_EAR_EXPONENTIAL_RATE * (0.28 - 0.18))
-    return float(np.clip(score / max_score_at_028, 0.0, 1.0))
+    score = 1.0 - np.exp(-_EAR_EXPONENTIAL_RATE * (ear_open - ear))
+    max_score = 1.0 - np.exp(-_EAR_EXPONENTIAL_RATE * (ear_open - ear_closed))
+    return float(np.clip(score / max_score, 0.0, 1.0))
 
 
 class FatigueAnalyzer:
@@ -86,8 +86,29 @@ class FatigueAnalyzer:
       • Мгновенный штраф при EAR < 0.22
     """
 
-    def __init__(self, window_size_seconds: int = 30):
+    def __init__(self, window_size_seconds: int = 30, calibration_manager=None):
         self.window_size = window_size_seconds
+        self._calibration_manager = calibration_manager
+
+        # ── Калибровочные пороги EAR ─────────────────────────
+        # По умолчанию — физиологические константы.
+        # Если есть калибровка — корректируем пропорционально baseline_ear.
+        baseline_ear = 0.30
+        baseline_mar = 0.15
+        if calibration_manager:
+            fc = calibration_manager.face_calibration
+            if fc.get("calibrated") and fc.get("baseline_ear", 0) > 0:
+                baseline_ear = fc["baseline_ear"]
+            if fc.get("calibrated") and fc.get("baseline_mar", 0) > 0:
+                baseline_mar = fc["baseline_mar"]
+
+        ratio_ear = baseline_ear / 0.30
+        ratio_mar = baseline_mar / 0.15
+
+        self._ear_open         = np.clip(0.28 * ratio_ear, 0.22, 0.45)
+        self._ear_closed       = np.clip(0.18 * ratio_ear, 0.12, 0.30)
+        self._ear_critical     = np.clip(0.22 * ratio_ear, 0.16, 0.35)
+        self._mar_max_physio   = np.clip(0.70 * ratio_mar, 0.50, 0.90)
 
         # ── Rolling histories (уменьшено для более быстрой реакции) ─
         self.ear_history = deque(maxlen=60)
@@ -153,19 +174,21 @@ class FatigueAnalyzer:
         fatigue_score = min(100.0, max(0.0, raw_score * 100.0))
 
         # ── МГНОВЕННЫЙ ШТРАФ: если EAR ниже критического ──
-        # При EAR < 0.18 — принудительно повышаем fatigue_score до максимума
-        if ear <= EAR_CLOSED_THRESHOLD:
+        # При EAR < ear_closed — принудительно повышаем fatigue_score до максимума
+        if ear <= self._ear_closed:
             # Глаза закрыты — внимание не может быть высоким
             fatigue_score = max(fatigue_score, 85.0)
-        elif ear < EAR_CRITICAL_THRESHOLD:
-            # EAR между 0.18 и 0.22 — экспоненциальный штраф
-            penalty = 1.0 - _ear_to_score_exponential(ear)
+        elif ear < self._ear_critical:
+            # EAR между ear_closed и ear_critical — экспоненциальный штраф
+            penalty = 1.0 - _ear_to_score_exponential(
+                ear, self._ear_open, self._ear_closed
+            )
             fatigue_score = max(fatigue_score, 60.0 + 25.0 * penalty)
 
         # ── ЗАЩИТА: при нормальном EAR усталость не может быть высокой ──
-        # Если EAR > 0.28 (глаза явно открыты), принудительно ограничиваем
+        # Если EAR > ear_open (глаза явно открыты), принудительно ограничиваем
         # fatigue_score, чтобы уровень не превысил "mild" (< 50).
-        if ear > 0.28:
+        if ear > self._ear_open:
             fatigue_score = min(fatigue_score, 45.0)
 
         fatigue_level, trend = self._analyze_fatigue_state(fatigue_score)
@@ -192,12 +215,12 @@ class FatigueAnalyzer:
 
     def _detect_blink(self, ear: float, current_time: float):
         """Определение моргания по пересечению EAR порогов."""
-        if self.last_ear > 0.28 and ear < 0.22:
+        if self.last_ear > self._ear_open and ear < self._ear_critical:
             if not self.was_eyes_closed:
                 self.blink_count += 1
                 self.blink_timestamps.append(current_time)
                 self.was_eyes_closed = True
-        elif ear > 0.25:
+        elif ear > self._ear_open * 0.9:
             self.was_eyes_closed = False
         self.last_ear = ear
 
@@ -208,9 +231,9 @@ class FatigueAnalyzer:
         EAR → [0, 1]  (0 = широко открыты, 1 = закрыты).
 
         НЕЛИНЕЙНАЯ экспоненциальная функция:
-          EAR >= 0.28 → score = 0.0
-          EAR = 0.22  → score ≈ 0.5
-          EAR <= 0.18 → score = 1.0
+          EAR >= ear_open → score = 0.0
+          EAR = ear_critical  → score ≈ 0.5
+          EAR <= ear_closed → score = 1.0
 
         Учитывает текущий EAR (вес 0.85) + минимум за 3 кадра (0.15).
         Убрано избыточное сглаживание на 10 кадров.
@@ -223,10 +246,14 @@ class FatigueAnalyzer:
         min_ear = float(min(recent3))
 
         # Основной score — текущий EAR (нелинейный)
-        current_score = _ear_to_score_exponential(current_ear)
+        current_score = _ear_to_score_exponential(
+            current_ear, self._ear_open, self._ear_closed
+        )
 
         # Лёгкое сглаживание по минимуму за 3 кадра
-        min_score = _ear_to_score_exponential(min_ear)
+        min_score = _ear_to_score_exponential(
+            min_ear, self._ear_open, self._ear_closed
+        )
 
         return float(np.clip(
             0.85 * current_score + 0.15 * min_score,
@@ -245,7 +272,7 @@ class FatigueAnalyzer:
         recent_mar = list(self.mar_history)[-10:]
         max_mar = max(recent_mar)
 
-        return _min_max(max_mar, MAR_MIN_PHYSIO, MAR_MAX_PHYSIO)
+        return _min_max(max_mar, MAR_MIN_PHYSIO, self._mar_max_physio)
 
     def _get_blink_score(self) -> float:
         """
@@ -426,13 +453,15 @@ class FatigueAnalyzer:
         # ── Мгновенный штраф при низком EAR (аналогично update) ──
         if len(self.ear_history) > 0:
             ear = self.ear_history[-1]
-            if ear <= EAR_CLOSED_THRESHOLD:
+            if ear <= self._ear_closed:
                 score = max(score, 85.0)
-            elif ear < EAR_CRITICAL_THRESHOLD:
-                penalty = 1.0 - _ear_to_score_exponential(ear)
+            elif ear < self._ear_critical:
+                penalty = 1.0 - _ear_to_score_exponential(
+                    ear, self._ear_open, self._ear_closed
+                )
                 score = max(score, 60.0 + 25.0 * penalty)
             # ── Защита: при нормальном EAR усталость не может быть высокой ──
-            if ear > 0.28:
+            if ear > self._ear_open:
                 score = min(score, 45.0)
         return score
 

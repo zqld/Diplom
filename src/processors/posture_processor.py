@@ -5,12 +5,34 @@ from src.logger import logger
 
 
 class PostureProcessor:
-    def __init__(self, calibration_manager=None):
+    def __init__(self, calibration_manager=None, posture_bad_percent=None):
         self._config = config_manager.posture
         self._window_size = self._config.get('window_size_seconds', 5)
         self._calibration = calibration_manager
+        self._posture_bad_percent = posture_bad_percent
 
-        self.analyzer = PostureAnalyzer(window_size_seconds=self._window_size)
+        bad_threshold = self._compute_bad_threshold(posture_bad_percent)
+        self.analyzer = PostureAnalyzer(
+            window_size_seconds=self._window_size,
+            bad_threshold=bad_threshold,
+        )
+        self._posture_start_time = None
+        self._time_trigger = self._config.get('posture_time_trigger', 1.0)
+        self._last_event_time = 0
+        self._cooldown = 1.0
+
+    @staticmethod
+    def _compute_bad_threshold(posture_bad_percent):
+        """posture_bad_percent (5–100) → порог score для 'bad'.
+
+        100% → threshold=30  (очень чувствительно — любое отклонение)
+        50%  → threshold=60  (дефолт)
+        5%   → threshold=600 (почти никогда)
+        """
+        if posture_bad_percent is None:
+            return 60
+        factor = max(0.1, posture_bad_percent / 50.0)
+        return max(15, int(60 / factor))
         self._posture_start_time = None
         self._time_trigger = self._config.get('posture_time_trigger', 1.0)
         self._last_event_time = 0
@@ -81,10 +103,22 @@ class PostureProcessor:
         return result
     
     def reset(self):
-        self.analyzer = PostureAnalyzer(window_size_seconds=self._window_size)
+        self.analyzer = PostureAnalyzer(
+            window_size_seconds=self._window_size,
+            bad_threshold=self._compute_bad_threshold(self._posture_bad_percent),
+        )
         self._posture_start_time = None
         self._last_event_time = 0
     
     def set_calibration_manager(self, calibration_manager):
         """Обновить ссылку на CalibrationManager (можно вызвать после инициализации)."""
         self._calibration = calibration_manager
+
+    def set_posture_sensitivity(self, posture_bad_percent: int):
+        """Обновить чувствительность осанки (5–100%) и пересоздать анализатор."""
+        self._posture_bad_percent = posture_bad_percent
+        bad_threshold = self._compute_bad_threshold(posture_bad_percent)
+        self.analyzer = PostureAnalyzer(
+            window_size_seconds=self._window_size,
+            bad_threshold=bad_threshold,
+        )
