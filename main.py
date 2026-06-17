@@ -8,7 +8,7 @@ import time
 import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QFrame, QProgressBar, QListWidget,
-                             QSizePolicy)
+                             QScrollArea, QSizePolicy)
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QShortcut, QImage, QPixmap, QFont, QColor, QIcon
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
@@ -55,7 +55,7 @@ class ModernButton(QPushButton):
         super().__init__(text, parent)
         self.primary = primary
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(36)
+        self.setMinimumSize(200, 36)
         self.setMaximumHeight(52)
         if primary:
             self.setStyleSheet(f"""
@@ -99,7 +99,7 @@ class ModernPrimaryButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(40)
+        self.setMinimumSize(200, 40)
         self.setMaximumHeight(56)
         self.setStyleSheet(f"""
             QPushButton {{
@@ -124,7 +124,7 @@ class DangerButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(36)
+        self.setMinimumSize(200, 36)
         self.setMaximumHeight(52)
         self.setStyleSheet(f"""
             QPushButton {{
@@ -936,8 +936,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.force_close = False
         self.setWindowTitle("NeuroFocus")
-        x, y, w, h = window_geometry(0.85)
-        self.setGeometry(x, y, w, h)
+        self.setGeometry(*window_geometry(0.85, self))
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {DARK_COLORS['bg_main']};
@@ -1039,7 +1038,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(video_container, stretch=1)
 
         right_panel = QFrame()
-        right_panel.setMinimumWidth(260)
+        right_panel.setMinimumWidth(300)
         right_panel.setMaximumWidth(450)
         right_panel.setStyleSheet(f"""
             QFrame {{
@@ -1052,10 +1051,22 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(20, 20, 20, 20)
         right_layout.setSpacing(16)
 
+        # ── Scrollable content (при нехватке высоты — скроллится) ────────
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        right_scroll.setStyleSheet("background: transparent; border: none;")
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(16)
+
         metrics_header = QLabel("Показатели")
         metrics_header.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         metrics_header.setStyleSheet(f"color: {DARK_COLORS['text_muted']}; letter-spacing: 1px;")
-        right_layout.addWidget(metrics_header)
+        scroll_layout.addWidget(metrics_header)
 
         metrics_grid = QHBoxLayout()
         metrics_grid.setSpacing(16)
@@ -1066,7 +1077,7 @@ class MainWindow(QMainWindow):
         self.attention_card = MetricCard("Внимание", "100", "%", "good")
         metrics_grid.addWidget(self.attention_card)
         
-        right_layout.addLayout(metrics_grid)
+        scroll_layout.addLayout(metrics_grid)
 
         posture_frame = QFrame()
         posture_frame.setStyleSheet(f"""
@@ -1109,7 +1120,7 @@ class MainWindow(QMainWindow):
         
         posture_layout.addLayout(posture_value_layout)
         
-        right_layout.addWidget(posture_frame)
+        scroll_layout.addWidget(posture_frame)
 
         attention_frame = QFrame()
         attention_frame.setStyleSheet(f"""
@@ -1145,7 +1156,7 @@ class MainWindow(QMainWindow):
         self.fatigue_bar.setValue(100)
         attention_layout.addWidget(self.fatigue_bar)
         
-        right_layout.addWidget(attention_frame)
+        scroll_layout.addWidget(attention_frame)
         
         gesture_status_frame = QFrame()
         gesture_status_frame.setStyleSheet(f"""
@@ -1170,7 +1181,7 @@ class MainWindow(QMainWindow):
         self.gesture_status.setStyleSheet(f"color: {DARK_COLORS['text_muted']};")
         gesture_status_layout.addWidget(self.gesture_status)
         
-        right_layout.addWidget(gesture_status_frame)
+        scroll_layout.addWidget(gesture_status_frame)
 
         session_frame = QFrame()
         session_frame.setStyleSheet(f"""
@@ -1216,12 +1227,12 @@ class MainWindow(QMainWindow):
         
         session_layout.addLayout(session_row)
         
-        right_layout.addWidget(session_frame)
+        scroll_layout.addWidget(session_frame)
 
         events_header = QLabel("События")
         events_header.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         events_header.setStyleSheet(f"color: {DARK_COLORS['text_muted']}; letter-spacing: 1px;")
-        right_layout.addWidget(events_header)
+        scroll_layout.addWidget(events_header)
 
         self.event_list = QListWidget()
         self.event_list.setStyleSheet(f"""
@@ -1243,10 +1254,13 @@ class MainWindow(QMainWindow):
         """)
         self.event_list.setMaximumHeight(200)
         self.add_log_event("Система запущена", color=DARK_COLORS['text_muted'])
-        right_layout.addWidget(self.event_list)
+        scroll_layout.addWidget(self.event_list)
 
-        right_layout.addStretch()
+        scroll_layout.addStretch()
+        right_scroll.setWidget(scroll_content)
+        right_layout.addWidget(right_scroll, stretch=1)
 
+        # ── Кнопки (всегда видны внизу) ─────────────────────────────────
         button_group = QFrame()
         button_group.setStyleSheet("background-color: transparent;")
         button_layout = QVBoxLayout(button_group)
@@ -1541,20 +1555,18 @@ class MainWindow(QMainWindow):
             now = time.time()
             ev_lower = current_event.lower()
 
+            n = self.notify_manager
+            sound_on = n.settings.get("sound_enabled", False)
+
             _posture_keywords = ("осанка", "наклон", "отклонение", "голова", "поза")
             if any(kw in ev_lower for kw in _posture_keywords):
                 tracking_key = "posture_any"
-                # ИСПРАВЛЕНО: разные кулдауны для 'fair' и 'bad'
                 posture_level = data.get('posture_alert_level')
-                if posture_level == 'bad':
-                    cooldown = 30.0   # плохая осанка — чаще
-                    color = DARK_COLORS['danger']
-                else:
-                    cooldown = 45.0   # средняя — реже, чтобы не спамить
-                    color = DARK_COLORS['warning']
+                cooldown = float(n.settings.get("posture_cooldown", 30))
+                color = DARK_COLORS['danger'] if posture_level == 'bad' else DARK_COLORS['warning']
             else:
                 tracking_key = current_event
-                cooldown = COOLDOWN_YAWING_EVENT
+                cooldown = float(n.settings.get("fatigue_cooldown", 2))
                 color = DARK_COLORS['warning']
 
             last_time = self.last_event_times.get(tracking_key, 0)
@@ -1562,14 +1574,18 @@ class MainWindow(QMainWindow):
             if now - last_time > cooldown:
                 self.add_log_event(current_event, color)
                 self.last_event_times[tracking_key] = now
-                # Звуковой сигнал: осанка — attention, усталость — warning
-                try:
-                    if tracking_key == "posture_any":
-                        sound_manager.attention()
-                    else:
-                        sound_manager.warning()
-                except Exception:
-                    pass
+                # Звук только в критические моменты (плохая осанка с питч-алармом,
+                # сильная усталость) и если звук включён в настройках
+                if sound_on:
+                    try:
+                        is_critical = (
+                            (tracking_key == "posture_any" and data.get('pitch_alert'))
+                            or ("сильная" in ev_lower)
+                        )
+                        if is_critical:
+                            sound_manager.attention()
+                    except Exception:
+                        pass
 
     def open_stats(self):
         stats_dialog = StatsWindow()
@@ -1686,6 +1702,9 @@ class MainWindow(QMainWindow):
             if pp:
                 posture_bad_percent = dialog.result_settings.get('posture_bad_percent', 30)
                 pp.set_posture_sensitivity(posture_bad_percent)
+            # Применяем настройку звука
+            sound_enabled = dialog.result_settings.get('sound_enabled', False)
+            sound_manager.set_enabled(sound_enabled)
             self.show_notification("Настройки", "Параметры обновлены")
     
     def toggle_analysis_pause(self):

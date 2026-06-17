@@ -53,7 +53,7 @@ def _sigmoid(value: float, center: float, slope: float) -> float:
 
 
 def _ear_to_score_exponential(ear: float,
-                               ear_open: float = 0.28,
+                               ear_open: float = 0.25,
                                ear_closed: float = 0.18) -> float:
     """
     EAR → [0, 1] через экспоненциальную функцию.
@@ -105,7 +105,7 @@ class FatigueAnalyzer:
         ratio_ear = baseline_ear / 0.30
         ratio_mar = baseline_mar / 0.15
 
-        self._ear_open         = np.clip(0.28 * ratio_ear, 0.22, 0.45)
+        self._ear_open         = np.clip(0.25 * ratio_ear, 0.20, 0.40)
         self._ear_closed       = np.clip(0.18 * ratio_ear, 0.12, 0.30)
         self._ear_critical     = np.clip(0.22 * ratio_ear, 0.16, 0.35)
         self._mar_max_physio   = np.clip(0.70 * ratio_mar, 0.50, 0.90)

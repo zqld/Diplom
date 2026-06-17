@@ -80,9 +80,8 @@ class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("О программе")
-        x, y, w, h = window_geometry(0.4)
-        self.setGeometry(x, y, w, h)
         self.setMinimumSize(400, 350)
+        self.setGeometry(*window_geometry(0.4, self))
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{

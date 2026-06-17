@@ -162,8 +162,8 @@ class StatsWindow(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Аналитика сессии")
-        x, y, w, h = window_geometry(0.85)
-        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(480, 480)
+        self.setGeometry(*window_geometry(0.85, self))
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {DARK_COLORS['bg_main']};

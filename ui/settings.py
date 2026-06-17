@@ -110,9 +110,8 @@ class SettingsWindow(QDialog):
     def __init__(self, current_settings=None, calibration_manager=None):
         super().__init__()
         self.setWindowTitle("Настройки")
-        x, y, w, h = window_geometry(0.4)
-        self.setGeometry(x, y, w, h)
-        self.setMinimumSize(380, 500)
+        self.setMinimumSize(380, 650)
+        self.setGeometry(*window_geometry(0.4, self))
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {DARK_COLORS['bg_main']};
@@ -341,6 +340,54 @@ class SettingsWindow(QDialog):
         yawn_row.addWidget(self.stepper_yawn)
         scroll_layout.addLayout(yawn_row)
 
+        posture_cd_row = QHBoxLayout()
+        posture_cd_row.setSpacing(16)
+        posture_cd_label = QLabel("Событие осанка (сек)")
+        posture_cd_label.setFont(QFont("Segoe UI", 13))
+        posture_cd_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']};")
+        posture_cd_row.addWidget(posture_cd_label)
+        posture_cd_row.addStretch()
+        self.stepper_posture_cd = NumberStepper(5, 120, self.settings.get("posture_cooldown", 30), " сек")
+        posture_cd_row.addWidget(self.stepper_posture_cd)
+        scroll_layout.addLayout(posture_cd_row)
+
+        fatigue_cd_row = QHBoxLayout()
+        fatigue_cd_row.setSpacing(16)
+        fatigue_cd_label = QLabel("Событие усталость (сек)")
+        fatigue_cd_label.setFont(QFont("Segoe UI", 13))
+        fatigue_cd_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']};")
+        fatigue_cd_row.addWidget(fatigue_cd_label)
+        fatigue_cd_row.addStretch()
+        self.stepper_fatigue_cd = NumberStepper(1, 60, self.settings.get("fatigue_cooldown", 2), " сек")
+        fatigue_cd_row.addWidget(self.stepper_fatigue_cd)
+        scroll_layout.addLayout(fatigue_cd_row)
+
+        posture_toast_row = QHBoxLayout()
+        posture_toast_row.setSpacing(16)
+        posture_toast_label = QLabel("Уведомление осанка (мин)")
+        posture_toast_label.setFont(QFont("Segoe UI", 13))
+        posture_toast_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']};")
+        posture_toast_row.addWidget(posture_toast_label)
+        posture_toast_row.addStretch()
+        self.stepper_posture_toast = NumberStepper(1, 30, self.settings.get("posture_toast_cooldown", 5), " мин")
+        posture_toast_row.addWidget(self.stepper_posture_toast)
+        scroll_layout.addLayout(posture_toast_row)
+
+        fatigue_toast_row = QHBoxLayout()
+        fatigue_toast_row.setSpacing(16)
+        fatigue_toast_label = QLabel("Уведомление усталость (мин)")
+        fatigue_toast_label.setFont(QFont("Segoe UI", 13))
+        fatigue_toast_label.setStyleSheet(f"color: {DARK_COLORS['text_secondary']};")
+        fatigue_toast_row.addWidget(fatigue_toast_label)
+        fatigue_toast_row.addStretch()
+        self.stepper_fatigue_toast = NumberStepper(1, 30, self.settings.get("fatigue_toast_cooldown", 10), " мин")
+        fatigue_toast_row.addWidget(self.stepper_fatigue_toast)
+        scroll_layout.addLayout(fatigue_toast_row)
+
+        self.sound_check = QCheckBox("🔊  Звуковые уведомления (только критические моменты)")
+        self.sound_check.setChecked(self.settings.get("sound_enabled", False))
+        scroll_layout.addWidget(self.sound_check)
+
         scroll_layout.addStretch()
         
         scroll.setWidget(scroll_content)
@@ -415,8 +462,13 @@ class SettingsWindow(QDialog):
             "work_limit_minutes": self.stepper_work.value(),
             "posture_window_minutes": 3,
             "posture_bad_percent": self.stepper_posture.value(),
+            "posture_cooldown": self.stepper_posture_cd.value(),
+            "posture_toast_cooldown": self.stepper_posture_toast.value(),
             "yawn_limit": self.stepper_yawn.value(),
             "yawn_window_minutes": 10,
+            "fatigue_cooldown": self.stepper_fatigue_cd.value(),
+            "fatigue_toast_cooldown": self.stepper_fatigue_toast.value(),
+            "sound_enabled": self.sound_check.isChecked(),
             "gesture_sensitivity": sensitivity,
         }
         self.accept()

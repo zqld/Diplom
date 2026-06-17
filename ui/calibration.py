@@ -194,9 +194,8 @@ class CalibrationDialog(QDialog):
         self._cm = calibration_manager
 
         self.setWindowTitle("Калибровка")
-        x, y, w, h = window_geometry(0.45)
-        self.setGeometry(x, y, w, h)
         self.setMinimumSize(400, 450)
+        self.setGeometry(*window_geometry(0.45, self))
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{

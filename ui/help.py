@@ -21,9 +21,8 @@ class GestureHelpWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Управление жестами")
-        x, y, w, h = window_geometry(0.45)
-        self.setGeometry(x, y, w, h)
         self.setMinimumSize(400, 450)
+        self.setGeometry(*window_geometry(0.45, self))
         self.setModal(True)
         self.setStyleSheet(f"""
             QDialog {{

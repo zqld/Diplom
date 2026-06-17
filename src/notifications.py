@@ -13,8 +13,13 @@ DEFAULT_SETTINGS = {
     "work_limit_minutes": 45,
     "posture_window_minutes": 3,
     "posture_bad_percent": 30,
+    "posture_cooldown": 30,
+    "posture_toast_cooldown": 5,
     "yawn_limit": 4,
-    "yawn_window_minutes": 10
+    "yawn_window_minutes": 10,
+    "fatigue_cooldown": 2,
+    "fatigue_toast_cooldown": 10,
+    "sound_enabled": False
 }
 SETTINGS_PATH = os.path.join("data", "settings.json")
 
@@ -208,8 +213,8 @@ class NotificationManager:
             # Если прошло больше времени, чем указано в настройках
             work_duration = (now - self.session_start).total_seconds() / 60
             if work_duration > self.settings["work_limit_minutes"]:
-                # Если с последнего уведомления прошло > 10 минут
-                if (now - self.last_alert_time["break"]).total_seconds() > 600:
+                break_cd = self.settings.get("posture_toast_cooldown", 5) * 60
+                if (now - self.last_alert_time["break"]).total_seconds() > break_cd:
                     self.last_alert_time["break"] = now
                     # Сбрасываем таймер сессии, будто человек отдохнул (условно)
                     # Либо просто напоминаем
@@ -235,14 +240,15 @@ class NotificationManager:
 
                 # Если процент плохой осанки выше порога
                 if bad_percent > self.settings["posture_bad_percent"]:
-                    # Кулдаун 5 минут
-                    if (now - self.last_alert_time["posture"]).total_seconds() > 300:
+                    posture_toast_cd = self.settings.get("posture_toast_cooldown", 5) * 60
+                    if (now - self.last_alert_time["posture"]).total_seconds() > posture_toast_cd:
                         self.last_alert_time["posture"] = now
                         return "Следите за осанкой", f"За последние {window_min} мин вы сутулились {int(bad_percent)}% времени."
 
                 # ИСПРАВЛЕНО: если процент средней осанки выше порога — предупреждение
                 elif fair_percent > 40:  # 40% времени в среднем положении
-                    if (now - self.last_alert_time["posture"]).total_seconds() > 420:  # 7 мин кулдаун
+                    posture_toast_cd = self.settings.get("posture_toast_cooldown", 5) * 60
+                    if (now - self.last_alert_time["posture"]).total_seconds() > posture_toast_cd:
                         self.last_alert_time["posture"] = now
                         return "Следите за осанкой", f"За последние {window_min} мин ваша осанка была средней {int(fair_percent)}% времени. Выпрямитесь."
 
@@ -257,8 +263,8 @@ class NotificationManager:
             yawn_count = conn.execute(sql_yawn, {"thresh": time_threshold_yawn}).scalar()
             
             if yawn_count >= self.settings["yawn_limit"]:
-                # Кулдаун 10 минут
-                if (now - self.last_alert_time["fatigue"]).total_seconds() > 600:
+                fatigue_toast_cd = self.settings.get("fatigue_toast_cooldown", 10) * 60
+                if (now - self.last_alert_time["fatigue"]).total_seconds() > fatigue_toast_cd:
                     self.last_alert_time["fatigue"] = now
                     return "Обнаружена усталость", f"Вы часто зеваете ({yawn_count} раз за {window_yawn} мин). Рекомендуется проветрить помещение."
 
@@ -284,7 +290,8 @@ class NotificationManager:
             if total_5m >= 30:   # минимум ~30 секунд данных (1 запись/сек)
                 drowsy_pct = drowsy_cnt / total_5m * 100
                 if drowsy_pct > 25:
-                    if (now - self.last_alert_time["drowsy"]).total_seconds() > 600:
+                    fatigue_toast_cd = self.settings.get("fatigue_toast_cooldown", 10) * 60
+                    if (now - self.last_alert_time["drowsy"]).total_seconds() > fatigue_toast_cd:
                         self.last_alert_time["drowsy"] = now
                         return (
                             "⚠️ Сильная усталость",

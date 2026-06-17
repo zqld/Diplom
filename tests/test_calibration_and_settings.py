@@ -105,7 +105,7 @@ def fa_calibrated():
 
 class TestFatigueAnalyzerCalibration:
     def test_default_thresholds(self, fa_default):
-        assert fa_default._ear_open == pytest.approx(0.28, rel=0.01)
+        assert fa_default._ear_open == pytest.approx(0.25, rel=0.01)
         assert fa_default._ear_closed == pytest.approx(0.18, rel=0.01)
         assert fa_default._ear_critical == pytest.approx(0.22, rel=0.01)
         assert fa_default._mar_max_physio == pytest.approx(0.70, rel=0.01)
@@ -254,7 +254,7 @@ class TestFatigueProcessorCalibration:
         from src.processors.fatigue_processor import FatigueProcessor
         fp = FatigueProcessor()
         # По умолчанию — базовые пороги
-        assert fp.analyzer._ear_open == pytest.approx(0.28, rel=0.01)
+        assert fp.analyzer._ear_open == pytest.approx(0.25, rel=0.01)
         # После установки калибровки — пороги меняются
         cm = FakeCalibration(ear=0.38, mar=0.18)
         fp.set_calibration_manager(cm)

@@ -29,9 +29,8 @@ class PomodoroTimer(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("🍅 Pomodoro")
-        x, y, w, h = window_geometry(0.3)
-        self.setGeometry(x, y, w, h)
-        self.setMinimumSize(300, 380)
+        self.setMinimumSize(380, 460)
+        self.setGeometry(*window_geometry(0.35, self))
         self.setModal(False)
         self.setStyleSheet(f"""
             QDialog {{
@@ -59,6 +58,7 @@ class PomodoroTimer(QDialog):
         main_layout.addWidget(header)
         
         self.timer_label = QLabel("25:00")
+        self.timer_label.setMinimumWidth(280)
         self.timer_label.setFont(QFont("Segoe UI", 52, QFont.Weight.Bold))
         self.timer_label.setStyleSheet(f"color: {DARK_COLORS['accent']};")
         self.timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -117,7 +117,7 @@ class PomodoroTimer(QDialog):
         work_time_row.setSpacing(6)
         
         self.btn_work_minus = QPushButton("−")
-        self.btn_work_minus.setFixedSize(32, 30)
+        self.btn_work_minus.setFixedSize(38, 34)
         self.btn_work_minus.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['bg_card']};
@@ -137,12 +137,12 @@ class PomodoroTimer(QDialog):
         self.work_val = QLabel("25")
         self.work_val.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         self.work_val.setStyleSheet(f"color: {DARK_COLORS['text_primary']};")
-        self.work_val.setFixedWidth(28)
+        self.work_val.setFixedWidth(36)
         self.work_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         work_time_row.addWidget(self.work_val)
         
         self.btn_work_plus = QPushButton("+")
-        self.btn_work_plus.setFixedSize(32, 30)
+        self.btn_work_plus.setFixedSize(38, 34)
         self.btn_work_plus.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['bg_card']};
@@ -182,7 +182,7 @@ class PomodoroTimer(QDialog):
         break_time_row.setSpacing(6)
         
         self.btn_break_minus = QPushButton("−")
-        self.btn_break_minus.setFixedSize(32, 30)
+        self.btn_break_minus.setFixedSize(38, 34)
         self.btn_break_minus.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['bg_card']};
@@ -202,12 +202,12 @@ class PomodoroTimer(QDialog):
         self.break_val = QLabel("5")
         self.break_val.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         self.break_val.setStyleSheet(f"color: {DARK_COLORS['text_primary']};")
-        self.break_val.setFixedWidth(28)
+        self.break_val.setFixedWidth(36)
         self.break_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         break_time_row.addWidget(self.break_val)
         
         self.btn_break_plus = QPushButton("+")
-        self.btn_break_plus.setFixedSize(32, 30)
+        self.btn_break_plus.setFixedSize(38, 34)
         self.btn_break_plus.setStyleSheet(f"""
             QPushButton {{
                 background-color: {DARK_COLORS['bg_card']};
@@ -274,7 +274,7 @@ class PomodoroTimer(QDialog):
         buttons_layout.addWidget(self.btn_reset)
         
         self.btn_toggle = QPushButton("▶ Старт")
-        self.btn_toggle.setMinimumHeight(36)
+        self.btn_toggle.setMinimumSize(160, 36)
         self.btn_toggle.setMaximumHeight(52)
         self.btn_toggle.setStyleSheet(f"""
             QPushButton {{

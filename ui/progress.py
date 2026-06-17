@@ -250,8 +250,8 @@ class ProgressWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("История прогресса")
-        x, y, w, h = window_geometry(0.7)
-        self.setGeometry(x, y, w, h)
+        self.setMinimumSize(480, 360)
+        self.setGeometry(*window_geometry(0.8, self))
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {DARK_COLORS['bg_main']};
