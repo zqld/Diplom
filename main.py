@@ -1675,6 +1675,7 @@ class MainWindow(QMainWindow):
 
     def open_calibration(self):
         """Открыть минималистичный диалог калибровки."""
+        from ui.calibration import CalibrationDialog
         dlg = CalibrationDialog(self.calibration_manager, parent=self)
         dlg.exec()
         # После закрытия — уведомление если хоть что-то откалибровано
@@ -1682,11 +1683,23 @@ class MainWindow(QMainWindow):
         if cm and (cm.face_calibration.get("calibrated") or cm.hand_calibration.get("calibrated")):
             self.show_notification("Калибровка", "Параметры сохранены ✓")
 
+    def open_calibration_positioned(self):
+        """Компактная калибровка в правом нижнем углу (не перекрывает видеопоток)."""
+        from ui.calibration import CalibrationDialog
+        dlg = CalibrationDialog(self.calibration_manager, parent=self)
+        dlg.exec()
+        cm = self.calibration_manager
+        if cm and (cm.face_calibration.get("calibrated") or cm.hand_calibration.get("calibrated")):
+            self.show_notification("Калибровка", "Параметры сохранены ✓")
+
     def open_settings(self):
         dialog = SettingsWindow(self.notify_manager.settings, self.calibration_manager)
         dialog.exec()
+        # Если пользователь нажал "Пройти калибровку" — открываем её после закрытия настроек
+        if getattr(dialog, '_requested_calibration', False):
+            self.open_calibration_positioned()
+            return
         if dialog.result_settings:
-            self.notify_manager.update_settings(dialog.result_settings)
             # Применяем чувствительность жестов к работающему контроллеру
             sensitivity = dialog.result_settings.get('gesture_sensitivity', 1.0)
             hp = getattr(self.video_thread, 'hand_processor', None)

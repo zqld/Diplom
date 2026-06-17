@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
                              QScrollArea, QWidget)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
-from src.screen_utils import window_geometry
+from src.screen_utils import window_geometry_positioned
 
 try:
     from src.sound_manager import sound_manager as _sound_manager
@@ -127,13 +127,17 @@ class _StepCard(QFrame):
             self._bar.setStyleSheet(self._bar.styleSheet()
                                     .replace(_C['good'], _C['accent'])
                                     .replace(_C['warning'], _C['accent']))
+            self._hint_lbl.setStyleSheet(
+                f"color: {_C['muted']}; background: transparent; border: none;")
         elif state == 'active':
             self._status_lbl.setText("идёт сбор...")
             self._status_lbl.setStyleSheet(
-                f"color: {_C['warning']}; background: transparent; border: none;")
+                f"color: {_C['warning']}; font-weight: 600; background: transparent; border: none;")
             self._bar.setStyleSheet(self._bar.styleSheet()
                                     .replace(_C['good'], _C['accent'])
                                     .replace(_C['warning'], _C['accent']))
+            self._hint_lbl.setStyleSheet(
+                f"color: {_C['primary']}; font-weight: 600; background: transparent; border: none;")
         elif state == 'done':
             self._status_lbl.setText("готово ✓")
             self._status_lbl.setStyleSheet(
@@ -166,6 +170,8 @@ class _StepCard(QFrame):
                     border-radius: 4px;
                 }}
             """)
+            self._hint_lbl.setStyleSheet(
+                f"color: {_C['primary']}; font-weight: 600; background: transparent; border: none;")
         elif state == 'skip':
             self._status_lbl.setText("пропущено")
             self._status_lbl.setStyleSheet(
@@ -194,9 +200,12 @@ class CalibrationDialog(QDialog):
         self._cm = calibration_manager
 
         self.setWindowTitle("Калибровка")
-        self.setMinimumSize(400, 450)
-        self.setGeometry(*window_geometry(0.45, self))
-        self.setModal(True)
+        self.setMinimumSize(340, 720)
+        self.setGeometry(*window_geometry_positioned(0.35, self, 'bottom-right'))
+        self.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowStaysOnTopHint
+        )
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {_C['bg']};
@@ -373,7 +382,7 @@ class CalibrationDialog(QDialog):
         self._cm.start_gesture_zone_calibration()
         self._zone_card.set_state('active')
         self._zone_card.set_hint(
-            "Наведите руку в верхний ЛЕВЫЙ угол экрана и держите (~2 сек)"
+            "Наведите руку в ВЕРХНИЙ ЛЕВЫЙ угол экрана и держите (~2 сек)"
         )
 
     def _enter_zone_br(self):
@@ -386,7 +395,7 @@ class CalibrationDialog(QDialog):
         self._zone_card.set_state('transition')
         self._zone_card.set_hint(
             "✅ Левый угол зафиксирован!\n"
-            "Теперь переместите руку в нижний ПРАВЫЙ угол и держите (~3 сек)"
+            "Теперь переместите руку в НИЖНИЙ ПРАВЫЙ угол и держите (~3 сек)"
         )
         # Сообщаем calibration_manager о переходе с задержкой 1.5 с —
         # даём пользователю время переместить руку

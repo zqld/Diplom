@@ -5,7 +5,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from src.screen_utils import window_geometry
 from src.notifications import DEFAULT_SETTINGS
-from ui.calibration import CalibrationDialog
 
 
 DARK_COLORS = {
@@ -158,6 +157,7 @@ class SettingsWindow(QDialog):
         self.settings = current_settings if current_settings else DEFAULT_SETTINGS.copy()
         self.calibration = calibration_manager
         self.result_settings = None
+        self._requested_calibration = False
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(28, 24, 28, 24)
@@ -444,10 +444,9 @@ class SettingsWindow(QDialog):
         main_layout.addLayout(btn_layout)
 
     def start_calibration(self):
-        """Открыть полный диалог калибровки (все 4 шага, каждый можно пропустить)."""
-        dlg = CalibrationDialog(self.calibration, parent=self)
-        dlg.exec()
-        self.update_calibration_status()
+        """Закрыть настройки и открыть калибровку."""
+        self._requested_calibration = True
+        self.accept()
 
     def save_settings(self):
         sensitivity = self.sens_slider.value() / 100.0
