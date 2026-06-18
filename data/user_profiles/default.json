@@ -1,11 +1,11 @@
 {
-  "ear_open_mean": 0.46915591961847397,
-  "ear_open_std": 0.03591807877802454,
-  "ear_closed_mean": 0.2591750699911507,
-  "ear_closed_std": 0.03392264718256604,
-  "mar_normal_mean": 0.001763812716494566,
+  "ear_open_mean": 0.4880573433355733,
+  "ear_open_std": 0.013864319502784163,
+  "ear_closed_mean": 0.4411438462865723,
+  "ear_closed_std": 0.02183018301437898,
+  "mar_normal_mean": 0.0014951704808577218,
   "mar_yawn_threshold": 0.35,
-  "pose_head_pitch_mean": 10.853634379151432,
-  "pose_head_pitch_std": 2.3230465097055224,
+  "pose_head_pitch_mean": 13.406560417761845,
+  "pose_head_pitch_std": 5.458431063932485,
   "calibrated": true
 }
