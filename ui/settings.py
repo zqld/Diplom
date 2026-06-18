@@ -312,7 +312,7 @@ class SettingsWindow(QDialog):
         work_row.addWidget(work_label)
         work_row.addStretch()
         
-        self.stepper_work = NumberStepper(1, 240, self.settings["work_limit_minutes"], " мин")
+        self.stepper_work = NumberStepper(0, 240, self.settings["work_limit_minutes"], " мин")
         work_row.addWidget(self.stepper_work)
         scroll_layout.addLayout(work_row)
 
@@ -384,7 +384,7 @@ class SettingsWindow(QDialog):
         fatigue_toast_row.addWidget(self.stepper_fatigue_toast)
         scroll_layout.addLayout(fatigue_toast_row)
 
-        self.sound_check = QCheckBox("🔊  Звуковые уведомления (только критические моменты)")
+        self.sound_check = QCheckBox("🔊  Звуковые уведомления")
         self.sound_check.setChecked(self.settings.get("sound_enabled", False))
         scroll_layout.addWidget(self.sound_check)
 

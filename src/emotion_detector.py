@@ -17,7 +17,7 @@ class EmotionDetector:
         """
         Инициализация детектора эмоций со стабилизацией.
         """
-        self.EMOTIONS = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+        self.EMOTIONS = ["Злость", "Отвращение", "Страх", "Счастье", "Грусть", "Удивление", "Нейтрально"]
         self.emotion_history = deque(maxlen=5) 
         
         if not tensorflow_available:

@@ -1328,11 +1328,13 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(right_panel, stretch=1)
 
         self.notify_manager = NotificationManager()
+        sound_manager.set_enabled(self.notify_manager.settings.get("sound_enabled", True))
         self.session_start_time = time.time()
         self.face_lost_count = 0
         self.face_lost_time = None
         self._auto_pause_triggered = False
         self._last_face_state = True
+        self._analysis_paused = False
 
         self.notify_timer = QTimer(self)
         self.notify_timer.setInterval(10000)
@@ -1462,7 +1464,11 @@ class MainWindow(QMainWindow):
         
         face_detected = data.get("face_detected", True)
         
-        if face_detected:
+        if self._analysis_paused:
+            self.status_dot.setStyleSheet(f"background-color: {DARK_COLORS['warning']}; border-radius: 5px;")
+            self.status_text.setText("Мониторинг приостановлен")
+            self.status_text.setStyleSheet(f"color: {DARK_COLORS['warning']}; margin-left: 8px;")
+        elif face_detected:
             if not self._last_face_state:
                 self.face_lost_time = None
                 self._auto_pause_triggered = False
@@ -1481,7 +1487,7 @@ class MainWindow(QMainWindow):
             self.status_text.setStyleSheet(f"color: {DARK_COLORS['warning']}; margin-left: 8px;")
             self._last_face_state = False
             
-            if self.face_lost_time and not self._auto_pause_triggered:
+            if self.face_lost_time and not self._auto_pause_triggered and not self._analysis_paused:
                 lost_duration = time.time() - self.face_lost_time
                 if lost_duration > 5:
                     self._auto_pause_triggered = True
@@ -1492,11 +1498,11 @@ class MainWindow(QMainWindow):
         
         fatigue_level = data.get("fatigue_level", "normal")
         
-        if emotion in ["Нейтрально", "Neutral", "Спокойствие"]:
+        if emotion in ["Нейтрально", "Спокойствие"]:
             self.emotion_card.update_status("good")
-        elif emotion in ["Счастье", "Happy"]:
+        elif emotion in ["Счастье"]:
             self.emotion_card.update_status("good")
-        elif emotion in ["Усталость", "Tired", "Грусть", "Sad"]:
+        elif emotion in ["Усталость", "Грусть"]:
             self.emotion_card.update_status("warning")
         elif fatigue_level in ["mild", "moderate", "severe"]:
             self.emotion_card.update_status("warning")
@@ -1504,11 +1510,13 @@ class MainWindow(QMainWindow):
             self.emotion_card.update_status("normal")
 
         fatigue_score = data.get("fatigue_score", 0)
-        raw_attention = int(max(0, min(100, 100 - fatigue_score)))
-        smoothed = self.attention_tracker.update(raw_attention, time.time())
-        attention_level = int(max(0, min(100, round(smoothed))))
-        
-        self._attention_level = attention_level
+        if self._analysis_paused:
+            attention_level = self._attention_level
+        else:
+            raw_attention = int(max(0, min(100, 100 - fatigue_score)))
+            smoothed = self.attention_tracker.update(raw_attention, time.time())
+            attention_level = int(max(0, min(100, round(smoothed))))
+            self._attention_level = attention_level
         self.fatigue_bar.setValue(attention_level)
         self.attention_percent.setText(f"{attention_level}%")
         
@@ -1556,7 +1564,6 @@ class MainWindow(QMainWindow):
             ev_lower = current_event.lower()
 
             n = self.notify_manager
-            sound_on = n.settings.get("sound_enabled", False)
 
             _posture_keywords = ("осанка", "наклон", "отклонение", "голова", "поза")
             if any(kw in ev_lower for kw in _posture_keywords):
@@ -1574,18 +1581,6 @@ class MainWindow(QMainWindow):
             if now - last_time > cooldown:
                 self.add_log_event(current_event, color)
                 self.last_event_times[tracking_key] = now
-                # Звук только в критические моменты (плохая осанка с питч-алармом,
-                # сильная усталость) и если звук включён в настройках
-                if sound_on:
-                    try:
-                        is_critical = (
-                            (tracking_key == "posture_any" and data.get('pitch_alert'))
-                            or ("сильная" in ev_lower)
-                        )
-                        if is_critical:
-                            sound_manager.attention()
-                    except Exception:
-                        pass
 
     def open_stats(self):
         stats_dialog = StatsWindow()
@@ -1593,6 +1588,8 @@ class MainWindow(QMainWindow):
     
     def _sync_daily_progress(self):
         """Фоновая агрегация daily_progress каждые 5 минут."""
+        if self._analysis_paused:
+            return
         try:
             from src.progress_tracker import ProgressTracker
             ProgressTracker().update_daily_progress()
@@ -1641,9 +1638,11 @@ class MainWindow(QMainWindow):
             self.video_thread.wait(3000)
 
         # Gracefully flush async DB queue
-        if hasattr(self, 'db') and self.db:
+        vt = getattr(self, 'video_thread', None)
+        db = getattr(vt, 'db', None)
+        if db:
             try:
-                self.db.stop(timeout=5.0)
+                db.stop(timeout=5.0)
             except Exception as e:
                 logger.error(f"Ошибка остановки БД: {e}")
 
@@ -1718,10 +1717,13 @@ class MainWindow(QMainWindow):
             # Применяем настройку звука
             sound_enabled = dialog.result_settings.get('sound_enabled', False)
             sound_manager.set_enabled(sound_enabled)
+            # Сохраняем все настройки в NotificationManager и на диск
+            self.notify_manager.update_settings(dialog.result_settings)
             self.show_notification("Настройки", "Параметры обновлены")
     
     def toggle_analysis_pause(self):
         paused = self.video_thread.toggle_pause()
+        self._analysis_paused = paused
         if paused:
             self.btn_pause.setText("▶  Возобновить")
             self.btn_pause.setStyleSheet(f"""
@@ -1813,6 +1815,8 @@ class MainWindow(QMainWindow):
                 pass
 
     def check_notifications(self):
+        if self._analysis_paused:
+            return
         result = self.notify_manager.check_conditions()
         if result:
             title, msg = result
@@ -1828,6 +1832,7 @@ class MainWindow(QMainWindow):
             else:
                 accent = '#6B8AFE'  # accent — перерыв/общее
             self.show_notification(title, msg, accent=accent)
+            sound_manager.notification()
 
     def show_notification(self, title, msg, accent=None):
         self.toast = ToastNotification(title, msg, accent_color=accent)

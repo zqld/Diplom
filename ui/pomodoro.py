@@ -3,6 +3,7 @@ from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from src.screen_utils import window_geometry
 import os
+from src.sound_manager import sound_manager
 
 
 DARK_COLORS = {
@@ -401,12 +402,7 @@ class PomodoroTimer(QDialog):
         self.pomodoro_updated.emit(self.get_state())
     
     def _play_sound(self):
-        """Воспроизвести звук"""
-        try:
-            import winsound
-            winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS)
-        except:
-            pass
+        sound_manager.notification()
     
     def toggle_timer(self):
         if self.is_running:

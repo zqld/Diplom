@@ -11,6 +11,7 @@ class NotificationSound(Enum):
     CALIBRATION_START = "calibration_start"
     CALIBRATION_DONE = "calibration_done"
     ATTENTION = "attention"
+    NOTIFICATION = "notification"
 
 
 class SoundManager:
@@ -26,7 +27,7 @@ class SoundManager:
         if self._initialized:
             return
         self._initialized = True
-        self.enabled = False   # звук отключён глобально
+        self.enabled = True
         self.volume = 0.5
         self._init_pygame()
     
@@ -67,11 +68,45 @@ class SoundManager:
         except Exception:
             pass
     
+    def _chime(self, frequency=523, volume=None):
+        if not self.enabled:
+            return
+        vol = volume if volume else max(0.3, self.volume * 0.6)
+        try:
+            if self._available and self._pygame:
+                import numpy as np
+                sample_rate = 44100
+                duration = 100
+                samples = int(sample_rate * duration / 1000)
+                t = np.linspace(0, duration / 1000, samples, False)
+                envelope = np.exp(-3.0 * t / (duration / 1000))
+                wave = np.sin(2 * np.pi * frequency * t) * envelope
+                wave = wave * vol
+                wave = (wave * 32767).astype(np.int16)
+                stereo = np.column_stack((wave, wave))
+                sound = self._pygame.mixer.Sound(buffer=stereo.tobytes())
+                sound.play()
+            else:
+                import winsound
+                winsound.Beep(frequency, int(100 * vol))
+        except Exception:
+            pass
+
+    def _play_chime(self):
+        if not self.enabled:
+            return
+        self._chime(523, 0.3)
+        threading.Event().wait(0.13)
+        self._chime(659, 0.3)
+
     def play(self, sound_type: NotificationSound = None, frequency: int = None, duration: int = 150):
         if not self.enabled:
             return
         
         if sound_type:
+            if sound_type == NotificationSound.NOTIFICATION:
+                threading.Thread(target=self._play_chime, daemon=True).start()
+                return
             frequencies = {
                 NotificationSound.SUCCESS: (600, 100),
                 NotificationSound.WARNING: (800, 200),
@@ -84,6 +119,9 @@ class SoundManager:
             threading.Thread(target=self._beep, args=(freq, dur), daemon=True).start()
         elif frequency:
             threading.Thread(target=self._beep, args=(frequency, duration), daemon=True).start()
+    
+    def notification(self):
+        self.play(NotificationSound.NOTIFICATION)
     
     def success(self):
         self.play(NotificationSound.SUCCESS)

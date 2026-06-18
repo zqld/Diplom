@@ -295,13 +295,13 @@ class FatigueAnalyzer:
         emotions = list(self.emotion_history)[-10:]
 
         fatigue_keywords = [
-            "Усталость", "Tired", "Грусть", "Sad",
-            "Сонливость", "Drowsy", "Скука", "Bored",
+            "Усталость", "Грусть",
+            "Сонливость", "Скука",
         ]
         positive_keywords = [
-            "Счастье", "Happy", "Радость", "Joy",
-            "Внимательность", "Alert", "Нейтрально", "Neutral",
-            "Спокойствие", "Calm",
+            "Счастье", "Радость",
+            "Внимательность", "Нейтрально",
+            "Спокойствие",
         ]
 
         fatigue_count = sum(

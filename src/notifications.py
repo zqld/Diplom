@@ -19,7 +19,7 @@ DEFAULT_SETTINGS = {
     "yawn_window_minutes": 10,
     "fatigue_cooldown": 2,
     "fatigue_toast_cooldown": 10,
-    "sound_enabled": False
+    "sound_enabled": True
 }
 SETTINGS_PATH = os.path.join("data", "settings.json")
 
@@ -212,7 +212,7 @@ class NotificationManager:
             # 1. ПРОВЕРКА ВРЕМЕНИ РАБОТЫ (Time Limit)
             # Если прошло больше времени, чем указано в настройках
             work_duration = (now - self.session_start).total_seconds() / 60
-            if work_duration > self.settings["work_limit_minutes"]:
+            if self.settings["work_limit_minutes"] > 0 and work_duration > self.settings["work_limit_minutes"]:
                 break_cd = self.settings.get("posture_toast_cooldown", 5) * 60
                 if (now - self.last_alert_time["break"]).total_seconds() > break_cd:
                     self.last_alert_time["break"] = now
