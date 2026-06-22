@@ -74,40 +74,6 @@ python main.py
 | G | Включить/выключить управление мышью |
 | Esc | Выключить управление мышью |
 
-## Структура проекта
-
-```
-NeuroFocus/
-├── main.py                 # Главное окно, VideoThread
-├── ui/
-│   ├── calibration.py      # Диалог последовательной калибровки
-│   ├── settings.py         # Окно настроек
-│   ├── help.py             # Справка по жестам
-│   ├── stats.py            # Статистика
-│   ├── pomodoro.py         # Pomodoro таймер
-│   └── progress.py         # Прогресс
-├── src/
-│   ├── calibration_manager.py  # Управление калибровкой (лицо, осанка, рука, зона)
-│   ├── gesture_controller.py   # Адаптивное управление мышью
-│   ├── processors/
-│   │   ├── face_processor.py
-│   │   ├── fatigue_processor.py
-│   │   ├── hand_processor.py
-│   │   └── posture_processor.py
-│   └── ...
-├── neurofocus/
-│   ├── detectors/
-│   │   └── pose_detector.py    # MediaPipe Pose
-│   └── ml/
-│       ├── fatigue_classifier.py
-│       └── posture_classifier.py  # Геометрический анализ осанки
-├── models/
-│   └── fatigue_lstm.keras      # LSTM модель детекции усталости
-└── data/
-    ├── calibration.json
-    └── session_data.db
-```
-
 ## Архитектура
 
 ### Обработка видео
@@ -128,6 +94,8 @@ NeuroFocus/
 - Стабильное смещение (3+ кадра подряд) — телепортация в цель
 - После калибровки зоны — нормализация позиции ладони в калиброванных координатах
 
-## Лицензия
+## Установка
 
-MIT
+- Создать venv
+- Установить зависимости
+- Запустить main.py
